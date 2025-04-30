@@ -117,6 +117,10 @@ if t_step >= 1
         Temps_to_Fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
         erf = @(T) 5.*ones(length(T));
         err = erf(Data.LWLowerCo_Avg);
+    elseif strcmp('T_Surf_e1',selectedVariableName)
+        Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
+        erf = @(T) 5.*ones(length(T));
+        err = erf(Data.LWLowerCo_Avg);
     else
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
         erf = @(T) (0.002.*(273.15+T)+0.20);
@@ -128,6 +132,10 @@ else
     Data = retime(Data_orig,'regular','pchip','TimeStep',minutes(t_step));
     if strcmp('LWLowerCo_Avg',selectedVariableName) || strcmp('LWLowerCo',selectedVariableName)
         Temps_to_Fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
+        erf = @(T) 5.*ones(length(T));
+        err = erf(Data.LWLowerCo_Avg);
+    elseif strcmp('T_Surf_e1',selectedVariableName)
+        Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
         erf = @(T) 5.*ones(length(T));
         err = erf(Data.LWLowerCo_Avg);
     else
@@ -192,21 +200,30 @@ for i = 1:size(Dug_Temp,2)
     T_mn(i) = mean([max(Dug_Temp(:,i)) min(Dug_Temp(:,i))]);
 end
 figure
-plot(VWC_dug_depth,T_mn)
+plot(VWC_dug_depth,T_mn,"LineWidth",4)
 xlabel('Depth (m)');
 ylabel('Mean thermistor temperature (C)')
 title('Plot to assess subsurface temeprature gradient, and guess ice depth')
+hold on
 if strcmp(material_lower,"ice") %Adjust initial depth of transition guess and update depth max to accommodate
     xq = 0; %freezing point
     vq = interp1(T_mn,VWC_dug_depth,xq,'linear','extrap');
     Vars_init(7) = vq;
+    % %Option to fit with exponential
+    %f = fit(T_mn',VWC_dug_depth','exp1');
+    %Vars_init(7) = f(xq);
     Depth_Max = 1.5*Vars_init(7);
     T_Deep = 273.15;
+    %plot(f(0:0.1:max(T_mn)),0:0.1:max(T_mn));
+    plot(0:0.01:Depth_Max,interp1(VWC_dug_depth,T_mn,0:0.01:Depth_Max,'linear','extrap'));
 else
-    xq = Depth_Max; %freezing point
-    vq = interp1(VWC_dug_depth,T_mn,xq,'linear','extrap');
-    T_Deep = vq;
+    f = fit(VWC_dug_depth',T_mn','exp1');
+    T_Deep = f(Depth_Max);
+    plot(0:0.01:Depth_Max,f(0:0.01:Depth_Max));
 end
+hold off
+%Interpolated_Temp = Interpolated_Temp+T_mn(1)-mean([max(Interpolated_Temp) min(Interpolated_Temp)]);
+StartTemp_1 = 273.15+Interpolated_Temp(1); %Use first observed temperature as start for model top layer
 
 VWC_Smooth_Window = 50/(dt/60);
 Dug_VWC_smooth = smoothdata(Dug_VWC,'gaussian',VWC_Smooth_Window);
@@ -343,7 +360,6 @@ ttl = sprintf('TI top = %0.2f Jm^{-2}K^{-1}s^{-1/2}, chi^{2} = %0.2f', sqrt(Vars
 title(ttl,'Interpreter','tex','FontName','Ariel')
 
 %% Inputs:
-%   Time data - struct of timeseries data variables 
 %   Time data - struct of timeseries data variables 
       TData.air_Temp_C=Air_Temp_C;
       TData.DF=f_diff;

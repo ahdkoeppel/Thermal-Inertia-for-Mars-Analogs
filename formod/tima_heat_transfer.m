@@ -134,7 +134,7 @@ p.addParameter('solar_zenith_apparent',[],@(x)isnumeric(x)&&isvector(x));
 p.addParameter('f_diff',[],@(x)isnumeric(x)&&isvector(x));
 p.addParameter('e_fxn',[],@(x)isa(x,'function_handle'));
 p.addParameter('shadow_data',[],@isnumeric);
-p.addParameter('shadow_time_ind',[],@isnumeric);
+p.addParameter('shadow_time_ind',[],@(x)isnumeric(x)&&isvector(x));
 p.addParameter('T_adj1',[]);
 p.addParameter('T_adj2',[]);
 p.parse(r_short_lower, r_short_upper, varargin{:});
@@ -152,12 +152,13 @@ f_diff = p.f_diff;
 material = p.material;
 material_lower = p.material_lower;
 shadow_data = p.shadow_data;
+shadow_time_ind = p.shadow_time_ind;
 T_adj1 = p.T_adj1;if ~isempty(T_adj1), T_adj1(1) = T_adj1(1)/(dt/60);end
 T_adj2 = p.T_adj2;if ~isempty(T_adj2), T_adj2(1) = T_adj2(1)/(dt/60);end
 e_fxn = p.e_fxn;
 mantle_thickness = p.mantle_thickness;
 k_dry_std_mantle = p.k_dry_std_mantle;
-enable_melting = true; %switch to include ability of ice to melt
+enable_melting = false; %switch to include ability of ice to melt
 % ***************
 
 % ***************
@@ -313,7 +314,7 @@ for t = 2:length(air_temp_C)
         dT = F1*(T(t-1,z+1)+F2*T(t-1,z)+F3*T(t-1,z-1))+dt/(Cp*rho*layer_size(z))*q_evap_z;
         T(t,z) = T(t-1,z)+dT;
         if strcmp(material_lower,"ice") && z >= D_z && T(t,z) > 273.15
-            if enable_melting==1 %Melt ice if enough energy?
+            if enable_melting==1 %Melt ice if enough energy
                 q_ice = (T(t,z)-273.15)*(Cp*rho*layer_size(z));%heat in to ice J/m^2 assuming 50% purity (rho and Cp still as above)
                 m_melt(z) = m_melt(z)+q_ice/334000; %mass of ice melted added to prior mass. heat input (J/m^2)/ Latent heat of fusion pure ice (J/kg)=kg/m^2
                 if m_melt(z) > 917*0.5*layer_size(z); D_z = D_z+1; end %if mass is greater than total mass of ice in layer at 50%: melting. 917 = Desnity of ice kg/m^3 at 0C

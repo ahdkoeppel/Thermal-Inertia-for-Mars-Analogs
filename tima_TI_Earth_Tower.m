@@ -16,7 +16,7 @@ function [models,names,RESULTS] = tima_TI_Earth_Tower(TData,MData,outDIR,varargi
 %   [models,names] = tima_TI_Earth_Tower(TData,MData,outDIR)
 %   [models,names] = tima_TI_Earth_Tower(TData,MData,outDIR,varargin)
 %   [models,names] = tima_TI_Earth_Tower(TData,MData,outDIR,'Mode','1layer','Parallel',true,'SaveResults',true)
-%   [models,names,results] = tima_TI_Earth_Tower(TData,MData,outDIR,'Mode','2layer_fixed_lower','Parallel',true,'SaveResults',true,'Initialize',true);
+%   [models,names,results] = tima_TI_Earth_Tower(TData,MData,outDIR,'Mode','1layer','Parallel',true,'SaveResults',true,'Initialize',true);
 %
 % varargin options:
 %   'IncreaseSampling': Option to increase sampling rate if model does not
@@ -39,7 +39,8 @@ function [models,names,RESULTS] = tima_TI_Earth_Tower(TData,MData,outDIR,varargi
 %       TData.air_Temp_C: [C] near surface air temperature, typically at 3
 %           m AGL (1D vector)
 %       TData.DF: [decimal fraction] Fraction of  Global Horizontal Irradiance (GHI)
-%           or r_short_upper that is diffuse (1D vector)
+%           or r_short_upper that is diffuse (see
+%           https://github.com/sandialabs/MATLAB_PV_LIB) (1D vector)
 %       TData.evap_depth: [m] Depth of the evaporation front. (1D vector)
 %       TData.temps_to_fit_interp: [C] Surface temperature values to be used for
 %           fitting with any data gaps filled in. (1D vector)
@@ -90,6 +91,8 @@ function [models,names,RESULTS] = tima_TI_Earth_Tower(TData,MData,outDIR,varargi
 %       MData.minit: Vector of Initialized test variables with as many
 %           randomized samples as desired for fitting, 50 is good such that
 %           vector is nvarx50 (2D vector)
+%       MData.ndays: Number of days to run initialization script for
+%           (scalar)
 %       MData.notes: Details to record in data structure (string)
 %       MData.nstep: Number of iterations for curve fitting, 250 is good
 %           (scalar)
