@@ -66,7 +66,7 @@ function [temperature_column_K] = tima_initialize(k_dry_std,rho_dry,m,theta_k,T_
     temperature_column_K = NaN(NDAYS,Day_Dur,NLAY); %Set up Matrix of Temperatures for each day, each minute, and each layer
     temperature_column_K(:,:,NLAY) = T_deep; %Constant lower boundary temp
     for ind = 2:NLAY-1
-        temperature_column_K(1,1,ind) = Soil_Temp_K(1)+(T_deep-Soil_Temp_K(1))*(sum(layer_size(1:ind)-layer_size(ind)/2)/Depth_Max);
+        temperature_column_K(1,1,ind) = Soil_Temp_K(1)+(T_deep-Soil_Temp_K(1))*(sum(layer_size(1:ind))-layer_size(ind)/2)/Depth_Max;
         k(ind) = tima_conductivity_model_lu2007(k_dry_std,temperature_column_K(1,1,ind),T_std,VWC_column(1,end),theta_k,m,RH(1),material);
     end
     % ***************

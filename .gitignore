@@ -7,5 +7,5 @@ ext/tima_logPfun_dchi2v_dt.m
 ext/tima_logPfun_DTW.m
 formod/tima_heat_transfer_skin_treatment_energy_terms.m
 formod/tima_heat_transfer_skin_treatment.m
+formod/tima_heat_transfer_skin_Newton.m
 mcmc/tima_plot_results_skin_treatment.m
-tima_initialize_skin.m

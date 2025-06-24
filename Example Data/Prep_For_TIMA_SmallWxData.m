@@ -109,6 +109,12 @@ VWC_dug_depth = [Addldata{26},Addldata{27},Addldata{28},Addldata{29}]./100; %Dep
 slope = Addldata{30};
 aspect_cwfromS = Addldata{31};
 
+%% Calclulate stability time step
+% if layer_size(z)/sqrt(2*dt*(k(z)/rho/Cp)) < 1
+diffusivity = 0.1/(density*tima_specific_heat_model_hillel(density,density)); %k/(rho*Cp)
+dz = 0.0075; %max layer size
+t_step_calc = ceil(tima_calc_stable_timestep(0.1,dz,diffusivity)./60)
+
 %% Resample
 %Error on the FLIR measurements is +/- 5 C or 5% of readings in the -25°C to +135°C range
 if t_step >= 1
@@ -117,17 +123,25 @@ if t_step >= 1
         Temps_to_Fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
         erf = @(T) 5.*ones(length(T));
         err = erf(Data.LWLowerCo_Avg);
+    elseif strcmp('T_Surf_e1',selectedVariableName)
+        Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
+        erf = @(T) 5.*ones(length(T));
+        err = erf(Data.LWLowerCo_Avg);
     else
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
         erf = @(T) (0.002.*(273.15+T)+0.20);
         err = erf(Temps_to_fit); %Accuracy is 0.05K after calibration; CS240 Accuracy ± (0.15 + 0.002T)K TO ADD: DIF in temp between back of CS240 and top% err = (0.05.*(Temps_to_fit)); %5% or 5K before;
     end
     fit_ind = find(~isnan(Temps_to_fit));
-
+    Data = fillmissing(Data,'linear');
 else
     Data = retime(Data_orig,'regular','pchip','TimeStep',minutes(t_step));
     if strcmp('LWLowerCo_Avg',selectedVariableName) || strcmp('LWLowerCo',selectedVariableName)
         Temps_to_Fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
+        erf = @(T) 5.*ones(length(T));
+        err = erf(Data.LWLowerCo_Avg);
+    elseif strcmp('T_Surf_e1',selectedVariableName)
+        Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
         erf = @(T) 5.*ones(length(T));
         err = erf(Data.LWLowerCo_Avg);
     else
@@ -192,21 +206,35 @@ for i = 1:size(Dug_Temp,2)
     T_mn(i) = mean([max(Dug_Temp(:,i)) min(Dug_Temp(:,i))]);
 end
 figure
-plot(VWC_dug_depth,T_mn)
+plot(VWC_dug_depth,T_mn,"LineWidth",4)
 xlabel('Depth (m)');
 ylabel('Mean thermistor temperature (C)')
 title('Plot to assess subsurface temeprature gradient, and guess ice depth')
+hold on
 if strcmp(material_lower,"ice") %Adjust initial depth of transition guess and update depth max to accommodate
     xq = 0; %freezing point
     vq = interp1(T_mn,VWC_dug_depth,xq,'linear','extrap');
     Vars_init(7) = vq;
-    Depth_Max = 1.5*Vars_init(7);
-    T_Deep = 273.15;
+    % %Option to fit with exponential
+    %f = fit(T_mn',VWC_dug_depth','exp1');
+    %Vars_init(7) = f(xq);
+    Depth_ice = Vars_init(7);
+    plot(0:0.01:Depth_ice,interp1(VWC_dug_depth,T_mn,0:0.01:Depth_ice,'linear','extrap'));
+    if Depth_ice > Depth_Max
+        f = fit(VWC_dug_depth',T_mn','exp1');
+        T_Deep = f(Depth_Max)+273.15;
+    else
+        Depth_Max = Depth_ice;
+        T_Deep = 273.15;
+    end    
 else
-    xq = Depth_Max; %freezing point
-    vq = interp1(VWC_dug_depth,T_mn,xq,'linear','extrap');
-    T_Deep = vq;
+    f = fit(VWC_dug_depth',T_mn','exp1');
+    T_Deep = f(Depth_Max)+273.15;
+    plot(0:0.01:Depth_Max,f(0:0.01:Depth_Max));
 end
+hold off
+%Interpolated_Temp = Interpolated_Temp+T_mn(1)-mean([max(Interpolated_Temp) min(Interpolated_Temp)]);
+StartTemp_1 = 273.15+Interpolated_Temp(1); %Use first observed temperature as start for model top layer
 
 VWC_Smooth_Window = 50/(dt/60);
 Dug_VWC_smooth = smoothdata(Dug_VWC,'gaussian',VWC_Smooth_Window);
@@ -304,6 +332,9 @@ for i = 2:size(Subsurface_Temperatures_Running,2)
     M(i) = plot(Subsurface_Temperatures_Running((end-1440/(dt/60)+1):end,i),'b--', 'LineWidth', 2,'DisplayName','Subsurface_Modeled');
     hold on
 end
+for i = 1:4
+    SS= plot(Dug_Temp(1:1440/(dt/60),i),'k','LineWidth', 1 ,'DisplayName','Probe Temps Observed'); %1st day only (1440s)
+end
 SS= plot(Soil_Temp_C_Probe(1:1440/(dt/60)),'k','LineWidth', 1 ,'DisplayName','near Surf Probe Temp Observed'); %1st day only (1440s)
 hold off
 legend([M(1:2) SS],'Interpreter','none')
@@ -343,7 +374,6 @@ ttl = sprintf('TI top = %0.2f Jm^{-2}K^{-1}s^{-1/2}, chi^{2} = %0.2f', sqrt(Vars
 title(ttl,'Interpreter','tex','FontName','Ariel')
 
 %% Inputs:
-%   Time data - struct of timeseries data variables 
 %   Time data - struct of timeseries data variables 
       TData.air_Temp_C=Air_Temp_C;
       TData.DF=f_diff;
@@ -389,7 +419,7 @@ title(ttl,'Interpreter','tex','FontName','Ariel')
       MData.k_dry_std_mantle = k_dry_std_mantle;
       MData.aspect_cwfromS = aspect_cwfromS;
       MData.slope_angle = slope;
-
+%% Save
 % clearvars -except out_DIR TData MData
 c = fix(clock);
 [fname, outDIR] = uiputfile(sprintf('_%02.0f%02.0f-%s.mat',c(4),c(5),date), 'Please navigate to outDIR and enter filename with .mat suffix : ');

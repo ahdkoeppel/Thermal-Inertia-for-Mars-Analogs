@@ -8,17 +8,22 @@ function [] = tima_TI_Earth_Mapping(TData,MData,inDIR,outDIR,row,varargin)
 %   This model uses a surrogate optimization solver with 1-3 paramters to fit IR-image-observed
 %   surface temperatures using meteorological data and surface parameters derived from
 %   aerial/satellite imagery. Fitting Parameters can include any or all of: top layer bulk dry thermal
-%   conductivity, Depth of thermal conductivity
-%   transition, bottom layer bulk dry thermal conductivity. The tool is
+%   conductivity, Depth of thermal conductivity transition, bottom layer bulk dry thermal conductivity. The tool is
 %   optimized for raster files to run one row at a time (or in parallel per compute node)
-%   and then run columns in parallel on the same node.
+%   and then run columns in parallel on the same node. (With respect to
+%   tower script, this script requires new values for MData.col_min,
+%   MData.col_max, MData.lbound, MData.UAV_flight_times, MData.ubound, MData.vars_init,MData.erf)
 %
 % Syntax
 %   tima_TI_Earth_Mapping(TData,MData,inDIR,outDIR,row)
-%   [models,names] = tima_TI_Earth_Tower(TData,MData,inDIR,outDIR,row,varargin)
-%   [models,names] = tima_TI_Earth_Tower(TData,MData,inDIR,outDIR,row,'Mode','2layer')
+%   tima_TI_Earth_Mapping(TData,MData,inDIR,outDIR,row,varargin)
+%   tima_TI_Earth_Mapping(TData,MData,inDIR,outDIR,row,'Mode','2layer')
 %
 % varargin options:
+%   'IncreaseSampling': Option to increase sampling rate if model does not
+%       converge. Increases compute time, but avoids nonconvergence. (default=false) (logical)
+%   'Initialize': Option to reInitialize subsurface temperatures for each run. Increases compute time, 
+%       but avoids dramatic shifts with parameter optimization leading to instability. (default=false) (logical)
 %   'Mode': Fitting mode (options: '1layer', '2layer', '2layer_fixed_lower','2layer_fixed_depth' 
 %       -- 2Layer includes fitting of bulk dry thermal conductivity of lower 
 %       layer and the transition depth) (default='1layer') (string)
@@ -65,15 +70,20 @@ function [] = tima_TI_Earth_Mapping(TData,MData,inDIR,outDIR,row,varargin)
 %       MData.emissivity: [0-1] Weighted thermal emissivity over wavelength
 %           range of sensor. (vector)
 %       MData.erf: Uncertainty as function of observed temperature (function_handle)
+%       MData.k_dry_std_mantle: [W/mK] bulk dry thermal conductivty of topmost
+%           mantling layer at T_std (scalar)
 %       MData.layer_size: [m] List of vertical thickness for each layer
 %           from top to bottom. (vector)
 %       MData.lbound: List of lower limits on variables being fit for, in
 %           same order as MData.vars_init (vector, size MData.nvars)
+%       MData.mantle_thickness: [m] thickness of topmost mantling layer. (scalar)
 %       MData.material: ['basalt' 'amorphous' 'granite' 'clay' 'salt' 'ice']  primary mineralogy at the surface (char)
 %       MData.material_lower:  ['basalt' 'amorphous' 'granite' 'clay' 'salt' 'ice']  primary mineralogy at depth (char)
 %       MData.minit: Vector of initialized test variables with as many
 %           randomized samples as desired for fitting, 50 is good such that
 %           vector is nvarx50 (vector)
+%       MData.ndays: Number of days to run initialization script for
+%           (scalar)
 %       MData.notes: Details to record in data structure (string)
 %       MData.nstep: Number of iterations for curve fitting, 250 is good
 %           (vector)
@@ -133,9 +143,13 @@ p.addRequired('MData',@isstruct);
 p.addRequired('inDIR',@ischar);
 p.addRequired('outDIR',@ischar);
 p.addParameter('Mode','1layer',@ischar);%'2layer','2layer_fixed_depth','2layer_fixed_lower'
+p.addParameter('IncreaseSampling',false,@islogical);
+p.addParameter('Initialize',false,@islogical);
 p.addParameter('Parallel',false,@islogical);
 p.parse(TData, MData, inDIR, outDIR, varargin{:});
 p=p.Results;
+Initialize = p.Initialize;
+IncreaseSampling = p.IncreaseSampling;
 
 imptopts = detectImportOptions([inDIR,'Slope.csv']);
 imptopts.DataLines = [row row];
@@ -161,74 +175,89 @@ for k = 1:length(MData.UAV_flight_times)
 end
 if size(shadow_time_ind,2)>size(shadow_time_ind,1), shadow_time_ind=shadow_time_ind';end
 Data_UAV_X = NaN([size(Data_Albedo_X,2) size(UAV_flight_ind,2)]);
-for t = 1:size(UAV_flight_ind,2)
+for t = 1:length(UAV_flight_ind)
     Data_UAV_X(:,t) = readmatrix([inDIR,sprintf('TempC_%u.csv',t)],imptopts);
 end
 if strcmp(p.Mode,'1layer')
         MData.minit = MData.minit(1,:);
+        MData.lbound = 0.024;
+        MData.ubound = 3.7;
+        MData.nvars = 1;
 elseif strcmp(p.Mode,'2layer')
         MData.minit = MData.minit([1 7:8],:);
+        MData.lbound = [0.024 0.024 0];
+        MData.ubound = [3.7 3.7 5];
+        MData.nvars = 3;
 elseif strcmp(p.Mode,'2layer_fixed_depth')
         MData.minit = MData.minit([1 8],:);
+        MData.lbound = [0.024 0.024];
+        MData.ubound = [3.7 3.7];
+        MData.nvars = 2;
 elseif strcmp(p.Mode,'2layer_fixed_lower')
         MData.minit = MData.minit([1 7],:);
+        MData.lbound = [0.024 0];
+        MData.ubound = [3.7 5];
+        MData.nvars = 2;
 end
 poolobj = gcp('nocreate');
 delete(poolobj);
-parpool('Processes',10)
+parpool('Processes',MData.workers)
 %% Run Model in 1 point mode for each pixel
 %row = defined in function call
 parfor col = MData.col_min:MData.col_max
-        RESULTS = NaN([1 MData.nvars]);
-        fval = NaN;
         if any(isnan(Data_UAV_X(col,1:end))) || isnan(Data_Slope_X(col)) || isnan(Data_Aspect_X(col)) || isnan(Data_Albedo_X(col)) || isnan(single(Data_Shadows_X(col,1)))
             continue
         end
-
         if strcmp(p.Mode,'1layer')
             formod = @(theta) tima_full_model(theta(1),MData.vars_init(2),MData.vars_init(3),...
                 MData.vars_init(4),MData.vars_init(5),MData.vars_init(6),MData.density,MData.dt,MData.T_std,TData.air_Temp_C,TData.r_short_upper,...
                 TData.r_short_lower,TData.r_long_upper,TData.windspeed_horiz_ms,MData.T_deep,MData.T_start,MData.layer_size,...
                 TData.VWC_column,TData.evap_depth,TData.humidity,MData.emissivity,...
-                TData.pressure_air_Pa,TData.temps_to_fit_interp,MData.nday,'albedo',Data_Albedo_X(col),'slope_angle',Data_Slope_X(col),...
+                TData.pressure_air_Pa,TData.temps_to_fit_interp,MData.ndays,'albedo',Data_Albedo_X(col),'slope_angle',Data_Slope_X(col),...
                 'aspect_cwfromS',Data_Aspect_X(col),'solar_azimuth_cwfromS',...
                 TData.solarazimuth_cwfromS,'solar_zenith_apparent',TData.solarzenith_apparent,...
                 'f_diff',TData.DF,'shadow_data',single(Data_Shadows_X(col,:)),...
-                'shadow_time_ind',shadow_time_ind,'material',MData.material);
+                'shadow_time_ind',shadow_time_ind,'material',MData.material,'mantle_thickness',MData.mantle_thickness,...
+                'k_dry_std_mantle',MData.k_dry_std_mantle,IncreaseSampling',IncreaseSampling,'Initialize',Initialize);
         elseif strcmp(p.Mode,'2layer')
             formod = @(theta) tima_full_model(theta(1),MData.vars_init(2),MData.vars_init(3),...
                 MData.vars_init(4),MData.vars_init(5),MData.vars_init(6),MData.density,MData.dt,MData.T_std,TData.air_Temp_C,TData.r_short_upper,...
                 TData.r_short_lower,TData.r_long_upper,TData.windspeed_horiz_ms,MData.T_deep,MData.T_start,MData.layer_size,...
                 TData.VWC_column,TData.evap_depth,TData.humidity,MData.emissivity,...
-                TData.pressure_air_Pa,TData.temps_to_fit_interp,MData.nday,'albedo',Data_Albedo_X(col),...
+                TData.pressure_air_Pa,TData.temps_to_fit_interp,MData.ndays,'albedo',Data_Albedo_X(col),...
                 'slope_angle',Data_Slope_X(col),'aspect_cwfromS',Data_Aspect_X(col),'solar_azimuth_cwfromS',...
                 TData.solarazimuth_cwfromS,'solar_zenith_apparent',TData.solarzenith_apparent,...
                 'f_diff',TData.DF,'shadow_data',single(Data_Shadows_X(col,:)),...
                 'shadow_time_ind',shadow_time_ind,'material',MData.material,'depth_transition',...
-                 theta(2),'k_dry_std_lower',theta(3),'material_lower',MData.material_lower);
+                 theta(2),'k_dry_std_lower',theta(3),'material_lower',MData.material_lower,'mantle_thickness',MData.mantle_thickness,...
+                'k_dry_std_mantle',MData.k_dry_std_mantle,'IncreaseSampling',IncreaseSampling,'Initialize',Initialize);
         elseif strcmp(p.Mode,'2layer_fixed_depth')
             formod = @(theta) tima_full_model(theta(1),MData.vars_init(2),MData.vars_init(3),...
                 MData.vars_init(4),MData.vars_init(5),MData.vars_init(6),MData.density,MData.dt,MData.T_std,TData.air_Temp_C,TData.r_short_upper,...
                 TData.r_short_lower,TData.r_long_upper,TData.windspeed_horiz_ms,MData.T_deep,MData.T_start,MData.layer_size,...
                 TData.VWC_column,TData.evap_depth,TData.humidity,MData.emissivity,...
-                TData.pressure_air_Pa,TData.temps_to_fit_interp,MData.nday,'albedo',Data_Albedo_X(col),'slope_angle',Data_Slope_X(col),...
+                TData.pressure_air_Pa,TData.temps_to_fit_interp,MData.ndays,'albedo',Data_Albedo_X(col),'slope_angle',Data_Slope_X(col),...
                 'aspect_cwfromS',Data_Aspect_X(col),'solar_azimuth_cwfromS',...
                 TData.solarazimuth_cwfromS,'solar_zenith_apparent',TData.solarzenith_apparent,...
                 'f_diff',TData.DF,'shadow_data',single(Data_Shadows_X(col,:)),...
                 'shadow_time_ind',shadow_time_ind,'material',MData.material,'depth_transition',...
-                 MData.vars_init(7),'k_dry_std_lower',theta(2),'material_lower',MData.material_lower);
+                 MData.vars_init(7),'k_dry_std_lower',theta(2),'material_lower',MData.material_lower,'mantle_thickness',MData.mantle_thickness,...
+                'k_dry_std_mantle',MData.k_dry_std_mantle,'IncreaseSampling',IncreaseSampling,'Initialize',Initialize);
         elseif strcmp(p.Mode,'2layer_fixed_lower')
             formod = @(theta) tima_full_model(theta(1),MData.vars_init(2),MData.vars_init(3),...
                 MData.vars_init(4),MData.vars_init(5),MData.vars_init(6),MData.density,MData.dt,MData.T_std,TData.air_Temp_C,TData.r_short_upper,...
                 TData.r_short_lower,TData.r_long_upper,TData.windspeed_horiz_ms,MData.T_deep,MData.T_start,MData.layer_size,...
                 TData.VWC_column,TData.evap_depth,TData.humidity,MData.emissivity,...
-                TData.pressure_air_Pa,TData.temps_to_fit_interp,MData.nday,'albedo',Data_Albedo_X(col),...
+                TData.pressure_air_Pa,TData.temps_to_fit_interp,MData.ndays,'albedo',Data_Albedo_X(col),...
                 'slope_angle',Data_Slope_X(col),'aspect_cwfromS',Data_Aspect_X(col),'solar_azimuth_cwfromS',...
                 TData.solarazimuth_cwfromS,'solar_zenith_apparent',TData.solarzenith_apparent,...
                 'f_diff',TData.DF,'shadow_data',single(Data_Shadows_X(col,:)),...
                 'shadow_time_ind',shadow_time_ind,'material',MData.material,...
-                'depth_transition',theta(2),'k_dry_std_lower',vars_init(8),'material_lower',MData.material_lower);
+                'depth_transition',theta(2),'k_dry_std_lower',MData.vars_init(8),'material_lower',MData.material_lower,'mantle_thickness',MData.mantle_thickness,...
+                'k_dry_std_mantle',MData.k_dry_std_mantle,'IncreaseSampling',IncreaseSampling,'Initialize',Initialize);
         end
+        RESULTS = NaN([1 MData.nvars]);
+        fval = NaN;
         Temps_Obs = Data_UAV_X(col,:);
         Temps_Obs = Temps_Obs(:);
         opts = optimoptions('surrogateopt','InitialPoints',MData.minit,'UseParallel',p.Parallel,'MaxFunctionEvaluations',MData.nstep);
@@ -266,10 +295,10 @@ elseif strcmp(p.Mode,'2layer_fixed_lower')
     LineDepthData = NaN([1 MData.col_max]);
 end
 for col = 1:MData.col_max
-    LineTKFile = [out_DIR,sprintf('TK_Row_%u_Col_%u.txt',row,col)];
-    LineTKlowerFile = [out_DIR,sprintf('TK_lower_Row_%u_Col_%u.txt',row,col)];
-    LineDepthFile = [out_DIR,sprintf('Depth_Row_%u_Col_%u.txt',row,col)];
-    LinefvalFile = [out_DIR,sprintf('fval_Row_%u_Col_%u.txt',row,col)];
+    LineTKFile = [outDIR,sprintf('TK_Row_%u_Col_%u.txt',row,col)];
+    LineTKlowerFile = [outDIR,sprintf('TK_lower_Row_%u_Col_%u.txt',row,col)];
+    LineDepthFile = [outDIR,sprintf('Depth_Row_%u_Col_%u.txt',row,col)];
+    LinefvalFile = [outDIR,sprintf('fval_Row_%u_Col_%u.txt',row,col)];
     if isfile(LineTKFile)
         LineTKData(1,col) = readmatrix(LineTKFile);
         LinefvalData(1,col) = readmatrix(LinefvalFile);
@@ -277,7 +306,7 @@ for col = 1:MData.col_max
     if isfile(LineTKlowerFile)
         LineTKlowerData(1,col) = readmatrix(LineTKlowerFile);
     end
-    if isfile(LineDepthData)
+    if isfile(LineDepthFile)
 	    LineDepthData(1,col) = readmatrix(LineDepthFile);
     end
 end

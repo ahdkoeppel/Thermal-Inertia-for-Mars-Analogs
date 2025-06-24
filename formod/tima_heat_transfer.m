@@ -2,7 +2,7 @@ function [T_surf_C,T_sub_C,q_latent,k_eff_dt,q_conv,q_rad,q_G] = tima_heat_trans
     rho_dry_upper,dt,T_std,air_temp_C,r_short_upper,r_short_lower,r_long_upper,...
     windspeed_horiz,T_deep,initial_temps,layer_size,VWC_column,evap_depth,RH,emissivity,...
     pressure_air_pa,varargin)
-%% TIMA_HEAT_TRANSFER_ENERGY_TERMS
+%% TIMA_HEAT_TRANSFER
 %   This function uses observational data and assigned thermophysical properties 
 %   to estimate the temperature at the emitting surface of a 1D soil column through time.
 
@@ -119,6 +119,7 @@ p = inputParser;
 p.KeepUnmatched=true;
 p.addRequired('r_short_lower',@(x)all(x>=0) && isnumeric(x));
 p.addRequired('r_short_upper',@(x)all(x>=0) && isnumeric(x));
+p.addRequired('r_long_upper',@(x)isnumeric(x));
 p.addParameter('k_dry_std_lower',k_dry_std_upper,@isnumeric);
 p.addParameter('depth_transition',sum(layer_size),@isnumeric);
 p.addParameter('rho_dry_lower',rho_dry_upper,@isnumeric);
@@ -134,10 +135,10 @@ p.addParameter('solar_zenith_apparent',[],@(x)isnumeric(x)&&isvector(x));
 p.addParameter('f_diff',[],@(x)isnumeric(x)&&isvector(x));
 p.addParameter('e_fxn',[],@(x)isa(x,'function_handle'));
 p.addParameter('shadow_data',[],@isnumeric);
-p.addParameter('shadow_time_ind',[],@isnumeric);
+p.addParameter('shadow_time_ind',[],@(x)isnumeric(x)&&isvector(x));
 p.addParameter('T_adj1',[]);
 p.addParameter('T_adj2',[]);
-p.parse(r_short_lower, r_short_upper, varargin{:});
+p.parse(r_short_lower, r_short_upper, r_long_upper, varargin{:});
 p=p.Results;
 
 k_dry_std_lower = p.k_dry_std_lower;
@@ -152,12 +153,13 @@ f_diff = p.f_diff;
 material = p.material;
 material_lower = p.material_lower;
 shadow_data = p.shadow_data;
+shadow_time_ind = p.shadow_time_ind;
 T_adj1 = p.T_adj1;if ~isempty(T_adj1), T_adj1(1) = T_adj1(1)/(dt/60);end
 T_adj2 = p.T_adj2;if ~isempty(T_adj2), T_adj2(1) = T_adj2(1)/(dt/60);end
 e_fxn = p.e_fxn;
 mantle_thickness = p.mantle_thickness;
 k_dry_std_mantle = p.k_dry_std_mantle;
-enable_melting = true; %switch to include ability of ice to melt
+enable_melting = false; %switch to include ability of ice to melt
 % ***************
 
 % ***************
@@ -176,7 +178,7 @@ Mantle_Ind = 0;
 if mantle_thickness>0
     [~,Mantle_Ind] = min(abs(mantle_thickness-cumsum(layer_size))); %index of depth for surfce mantle transition
 end
-m_melt = zeros(NLAY,1);%area density of melted ice per layer kg/m^2
+%m_melt = zeros(NLAY,1);%area density of melted ice per layer kg/m^2
 k = k_dry_std_upper.*ones(1,NLAY);
 kay_upper = k_dry_std_upper;
 kay_lower = k_dry_std_lower;
@@ -196,7 +198,7 @@ for t = 2:length(air_temp_C)
     %*********LATENT HEAT & THERMAL CONDUCTIVITY***********
     [q_evap_1,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,1),VWC_column(t-1,1));
     q_latent(t,1) = q_evap_1;
-    q_latent(1,:) = q_evap_1.*ones(1,NLAY);
+    q_latent(1,1) = q_evap_1; %**CHANGE to q_latent(1,1?)
     if Mantle_Ind >= 1
         k(1) = tima_conductivity_model_lu2007(k_dry_std_mantle,T(t-1,1),T_std,VWC_column(t-1,1),theta_k,m,Soil_RH,material);%Top
     else
@@ -313,7 +315,7 @@ for t = 2:length(air_temp_C)
         dT = F1*(T(t-1,z+1)+F2*T(t-1,z)+F3*T(t-1,z-1))+dt/(Cp*rho*layer_size(z))*q_evap_z;
         T(t,z) = T(t-1,z)+dT;
         if strcmp(material_lower,"ice") && z >= D_z && T(t,z) > 273.15
-            if enable_melting==1 %Melt ice if enough energy?
+            if enable_melting==1 %Melt ice if enough energy
                 q_ice = (T(t,z)-273.15)*(Cp*rho*layer_size(z));%heat in to ice J/m^2 assuming 50% purity (rho and Cp still as above)
                 m_melt(z) = m_melt(z)+q_ice/334000; %mass of ice melted added to prior mass. heat input (J/m^2)/ Latent heat of fusion pure ice (J/kg)=kg/m^2
                 if m_melt(z) > 917*0.5*layer_size(z); D_z = D_z+1; end %if mass is greater than total mass of ice in layer at 50%: melting. 917 = Desnity of ice kg/m^3 at 0C
