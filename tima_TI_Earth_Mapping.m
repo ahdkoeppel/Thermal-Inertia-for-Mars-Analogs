@@ -175,30 +175,39 @@ for k = 1:length(MData.UAV_flight_times)
 end
 if size(shadow_time_ind,2)>size(shadow_time_ind,1), shadow_time_ind=shadow_time_ind';end
 Data_UAV_X = NaN([size(Data_Albedo_X,2) size(UAV_flight_ind,2)]);
-for t = 1:size(UAV_flight_ind,2)
+for t = 1:length(UAV_flight_ind)
     Data_UAV_X(:,t) = readmatrix([inDIR,sprintf('TempC_%u.csv',t)],imptopts);
 end
 if strcmp(p.Mode,'1layer')
         MData.minit = MData.minit(1,:);
+        MData.lbound = 0.024;
+        MData.ubound = 3.7;
+        MData.nvars = 1;
 elseif strcmp(p.Mode,'2layer')
         MData.minit = MData.minit([1 7:8],:);
+        MData.lbound = [0.024 0.024 0];
+        MData.ubound = [3.7 3.7 5];
+        MData.nvars = 3;
 elseif strcmp(p.Mode,'2layer_fixed_depth')
         MData.minit = MData.minit([1 8],:);
+        MData.lbound = [0.024 0.024];
+        MData.ubound = [3.7 3.7];
+        MData.nvars = 2;
 elseif strcmp(p.Mode,'2layer_fixed_lower')
         MData.minit = MData.minit([1 7],:);
+        MData.lbound = [0.024 0];
+        MData.ubound = [3.7 5];
+        MData.nvars = 2;
 end
 poolobj = gcp('nocreate');
 delete(poolobj);
-%parpool('Processes',MData.workers)
+parpool('Processes',MData.workers)
 %% Run Model in 1 point mode for each pixel
 %row = defined in function call
-for col = MData.col_min:MData.col_max
-        RESULTS = NaN([1 MData.nvars]);
-        fval = NaN;
+parfor col = MData.col_min:MData.col_max
         if any(isnan(Data_UAV_X(col,1:end))) || isnan(Data_Slope_X(col)) || isnan(Data_Aspect_X(col)) || isnan(Data_Albedo_X(col)) || isnan(single(Data_Shadows_X(col,1)))
             continue
         end
-
         if strcmp(p.Mode,'1layer')
             formod = @(theta) tima_full_model(theta(1),MData.vars_init(2),MData.vars_init(3),...
                 MData.vars_init(4),MData.vars_init(5),MData.vars_init(6),MData.density,MData.dt,MData.T_std,TData.air_Temp_C,TData.r_short_upper,...
@@ -247,6 +256,8 @@ for col = MData.col_min:MData.col_max
                 'depth_transition',theta(2),'k_dry_std_lower',MData.vars_init(8),'material_lower',MData.material_lower,'mantle_thickness',MData.mantle_thickness,...
                 'k_dry_std_mantle',MData.k_dry_std_mantle,'IncreaseSampling',IncreaseSampling,'Initialize',Initialize);
         end
+        RESULTS = NaN([1 MData.nvars]);
+        fval = NaN;
         Temps_Obs = Data_UAV_X(col,:);
         Temps_Obs = Temps_Obs(:);
         opts = optimoptions('surrogateopt','InitialPoints',MData.minit,'UseParallel',p.Parallel,'MaxFunctionEvaluations',MData.nstep);
@@ -284,10 +295,10 @@ elseif strcmp(p.Mode,'2layer_fixed_lower')
     LineDepthData = NaN([1 MData.col_max]);
 end
 for col = 1:MData.col_max
-    LineTKFile = [out_DIR,sprintf('TK_Row_%u_Col_%u.txt',row,col)];
-    LineTKlowerFile = [out_DIR,sprintf('TK_lower_Row_%u_Col_%u.txt',row,col)];
-    LineDepthFile = [out_DIR,sprintf('Depth_Row_%u_Col_%u.txt',row,col)];
-    LinefvalFile = [out_DIR,sprintf('fval_Row_%u_Col_%u.txt',row,col)];
+    LineTKFile = [outDIR,sprintf('TK_Row_%u_Col_%u.txt',row,col)];
+    LineTKlowerFile = [outDIR,sprintf('TK_lower_Row_%u_Col_%u.txt',row,col)];
+    LineDepthFile = [outDIR,sprintf('Depth_Row_%u_Col_%u.txt',row,col)];
+    LinefvalFile = [outDIR,sprintf('fval_Row_%u_Col_%u.txt',row,col)];
     if isfile(LineTKFile)
         LineTKData(1,col) = readmatrix(LineTKFile);
         LinefvalData(1,col) = readmatrix(LinefvalFile);
@@ -295,7 +306,7 @@ for col = 1:MData.col_max
     if isfile(LineTKlowerFile)
         LineTKlowerData(1,col) = readmatrix(LineTKlowerFile);
     end
-    if isfile(LineDepthData)
+    if isfile(LineDepthFile)
 	    LineDepthData(1,col) = readmatrix(LineDepthFile);
     end
 end

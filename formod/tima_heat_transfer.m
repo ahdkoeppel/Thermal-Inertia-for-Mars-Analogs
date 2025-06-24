@@ -2,7 +2,7 @@ function [T_surf_C,T_sub_C,q_latent,k_eff_dt,q_conv,q_rad,q_G] = tima_heat_trans
     rho_dry_upper,dt,T_std,air_temp_C,r_short_upper,r_short_lower,r_long_upper,...
     windspeed_horiz,T_deep,initial_temps,layer_size,VWC_column,evap_depth,RH,emissivity,...
     pressure_air_pa,varargin)
-%% TIMA_HEAT_TRANSFER_ENERGY_TERMS
+%% TIMA_HEAT_TRANSFER
 %   This function uses observational data and assigned thermophysical properties 
 %   to estimate the temperature at the emitting surface of a 1D soil column through time.
 
@@ -119,6 +119,7 @@ p = inputParser;
 p.KeepUnmatched=true;
 p.addRequired('r_short_lower',@(x)all(x>=0) && isnumeric(x));
 p.addRequired('r_short_upper',@(x)all(x>=0) && isnumeric(x));
+p.addRequired('r_long_upper',@(x)isnumeric(x));
 p.addParameter('k_dry_std_lower',k_dry_std_upper,@isnumeric);
 p.addParameter('depth_transition',sum(layer_size),@isnumeric);
 p.addParameter('rho_dry_lower',rho_dry_upper,@isnumeric);
@@ -137,7 +138,7 @@ p.addParameter('shadow_data',[],@isnumeric);
 p.addParameter('shadow_time_ind',[],@(x)isnumeric(x)&&isvector(x));
 p.addParameter('T_adj1',[]);
 p.addParameter('T_adj2',[]);
-p.parse(r_short_lower, r_short_upper, varargin{:});
+p.parse(r_short_lower, r_short_upper, r_long_upper, varargin{:});
 p=p.Results;
 
 k_dry_std_lower = p.k_dry_std_lower;
@@ -177,7 +178,7 @@ Mantle_Ind = 0;
 if mantle_thickness>0
     [~,Mantle_Ind] = min(abs(mantle_thickness-cumsum(layer_size))); %index of depth for surfce mantle transition
 end
-m_melt = zeros(NLAY,1);%area density of melted ice per layer kg/m^2
+%m_melt = zeros(NLAY,1);%area density of melted ice per layer kg/m^2
 k = k_dry_std_upper.*ones(1,NLAY);
 kay_upper = k_dry_std_upper;
 kay_lower = k_dry_std_lower;
@@ -197,7 +198,7 @@ for t = 2:length(air_temp_C)
     %*********LATENT HEAT & THERMAL CONDUCTIVITY***********
     [q_evap_1,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,1),VWC_column(t-1,1));
     q_latent(t,1) = q_evap_1;
-    q_latent(1,:) = q_evap_1.*ones(1,NLAY);
+    q_latent(1,1) = q_evap_1; %**CHANGE to q_latent(1,1?)
     if Mantle_Ind >= 1
         k(1) = tima_conductivity_model_lu2007(k_dry_std_mantle,T(t-1,1),T_std,VWC_column(t-1,1),theta_k,m,Soil_RH,material);%Top
     else

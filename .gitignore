@@ -8,4 +8,3 @@ ext/tima_logPfun_DTW.m
 formod/tima_heat_transfer_skin_treatment_energy_terms.m
 formod/tima_heat_transfer_skin_treatment.m
 mcmc/tima_plot_results_skin_treatment.m
-tima_initialize_skin.m

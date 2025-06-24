@@ -18,6 +18,7 @@ function [T_surf_C] = tima_full_model(k_dry_std_upper,m,CH,CE,theta_k,theta_E,..
 %       converge (default=false) (logical)
 %   'Initialize': Option to reinitialize subsurface temperatures for run. Increases compute time, 
 %       but avoids dramatic shifts with param optimization leading to instability. (default=false) (logical)
+%   'Skin': Option to fit surface skin temperature using Newton's method. If false, T_surf is the temperature of the top layer (default=false) (logical)
 %
 % Input Parameters ('single quotes' means optional varargin)
 %   Timeseries data
@@ -111,23 +112,36 @@ p.addParameter('IncreaseSampling',false,@islogical);
 % option to reinitialize subsurface temperatures for run. Increases compute time, 
 % but avoids dramatic shifts with param optimization leading to instability
 p.addParameter('Initialize',false,@islogical);
+p.addParameter('Skin',false,@islogical);
 p.parse(varargin{:});
 p=p.Results;
-
-if p.Initialize
-    Subsurface_Temperatures = tima_initialize(k_dry_std_upper,rho_dry_upper,m,...
-    theta_k,T_std,T_deep,T_surf_obs_C,dt,layer_size,VWC_column,RH,NDAYS,material,varargin{:});
-    T_Start(:) = Subsurface_Temperatures(end,end,:);
-    T_Start(1) = T_surf_obs_C(1)+273.15;
+if p.Skin
+    if p.Initialize
+        Subsurface_Temperatures = tima_initialize_skin(k_dry_std_upper,rho_dry_upper,m,...
+        theta_k,T_std,T_deep,T_surf_obs_C,dt,layer_size,VWC_column,RH,NDAYS,material,varargin{:});
+        T_Start(2:end) = Subsurface_Temperatures(end,end,:);
+        T_Start(1) = T_surf_obs_C(1)+273.15;
+    end
+    [T_surf_C,~,~,~,~,~,~] = tima_heat_transfer_skin(k_dry_std_upper,m,CH,CE,theta_k,theta_E,rho_dry_upper,dt,T_std,air_temp_C,r_short_upper,...
+            r_short_lower,r_long_upper,windspeed_horiz,T_deep,T_Start,layer_size,...
+            VWC_column,evap_depth,RH,emissivity,...
+             pressure_air_pa,varargin{:});
+else
+    if p.Initialize
+        Subsurface_Temperatures = tima_initialize(k_dry_std_upper,rho_dry_upper,m,...
+        theta_k,T_std,T_deep,T_surf_obs_C,dt,layer_size,VWC_column,RH,NDAYS,material,varargin{:});
+        T_Start(:) = Subsurface_Temperatures(end,end,:);
+        T_Start(1) = T_surf_obs_C(1)+273.15;
+    end
+    [T_surf_C,~,~,~,~,~,~] = tima_heat_transfer(k_dry_std_upper,m,CH,CE,theta_k,theta_E,rho_dry_upper,dt,T_std,air_temp_C,r_short_upper,...
+            r_short_lower,r_long_upper,windspeed_horiz,T_deep,T_Start,layer_size,...
+            VWC_column,evap_depth,RH,emissivity,...
+             pressure_air_pa,varargin{:});
 end
-[T_surf_C,~,~,~,~,~,~] = tima_heat_transfer(k_dry_std_upper,m,CH,CE,theta_k,theta_E,rho_dry_upper,dt,T_std,air_temp_C,r_short_upper,...
-        r_short_lower,r_long_upper,windspeed_horiz,T_deep,T_Start,layer_size,...
-        VWC_column,evap_depth,RH,emissivity,...
-         pressure_air_pa,varargin{:});
 
 if any(T_surf_C==-65535) && p.IncreaseSampling
     time_orig = dt.*(0:1:length(air_temp_C)-1);
-    dt = 10;
+    dt = dt/2;
     time_new = 0:dt:max(time_orig);
     air_temp_C = interp1(time_orig,air_temp_C,time_new,'linear');
     r_short_upper = interp1(time_orig,r_short_upper,time_new,'linear');

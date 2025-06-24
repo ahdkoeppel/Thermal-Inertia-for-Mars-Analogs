@@ -109,6 +109,12 @@ VWC_dug_depth = [Addldata{26},Addldata{27},Addldata{28},Addldata{29}]./100; %Dep
 slope = Addldata{30};
 aspect_cwfromS = Addldata{31};
 
+%% Calclulate stability time step
+% if layer_size(z)/sqrt(2*dt*(k(z)/rho/Cp)) < 1
+diffusivity = 0.1/(density*tima_specific_heat_model_hillel(density,density)); %k/(rho*Cp)
+dz = 0.0075; %max layer size
+t_step_calc = ceil(tima_calc_stable_timestep(0.1,dz,diffusivity)./60)
+
 %% Resample
 %Error on the FLIR measurements is +/- 5 C or 5% of readings in the -25°C to +135°C range
 if t_step >= 1
@@ -127,7 +133,7 @@ if t_step >= 1
         err = erf(Temps_to_fit); %Accuracy is 0.05K after calibration; CS240 Accuracy ± (0.15 + 0.002T)K TO ADD: DIF in temp between back of CS240 and top% err = (0.05.*(Temps_to_fit)); %5% or 5K before;
     end
     fit_ind = find(~isnan(Temps_to_fit));
-
+    Data = fillmissing(Data,'linear');
 else
     Data = retime(Data_orig,'regular','pchip','TimeStep',minutes(t_step));
     if strcmp('LWLowerCo_Avg',selectedVariableName) || strcmp('LWLowerCo',selectedVariableName)
@@ -212,13 +218,18 @@ if strcmp(material_lower,"ice") %Adjust initial depth of transition guess and up
     % %Option to fit with exponential
     %f = fit(T_mn',VWC_dug_depth','exp1');
     %Vars_init(7) = f(xq);
-    Depth_Max = 1.5*Vars_init(7);
-    T_Deep = 273.15;
-    %plot(f(0:0.1:max(T_mn)),0:0.1:max(T_mn));
-    plot(0:0.01:Depth_Max,interp1(VWC_dug_depth,T_mn,0:0.01:Depth_Max,'linear','extrap'));
+    Depth_ice = Vars_init(7);
+    plot(0:0.01:Depth_ice,interp1(VWC_dug_depth,T_mn,0:0.01:Depth_ice,'linear','extrap'));
+    if Depth_ice > Depth_Max
+        f = fit(VWC_dug_depth',T_mn','exp1');
+        T_Deep = f(Depth_Max)+273.15;
+    else
+        Depth_Max = Depth_ice;
+        T_Deep = 273.15;
+    end    
 else
     f = fit(VWC_dug_depth',T_mn','exp1');
-    T_Deep = f(Depth_Max);
+    T_Deep = f(Depth_Max)+273.15;
     plot(0:0.01:Depth_Max,f(0:0.01:Depth_Max));
 end
 hold off
@@ -321,6 +332,9 @@ for i = 2:size(Subsurface_Temperatures_Running,2)
     M(i) = plot(Subsurface_Temperatures_Running((end-1440/(dt/60)+1):end,i),'b--', 'LineWidth', 2,'DisplayName','Subsurface_Modeled');
     hold on
 end
+for i = 1:4
+    SS= plot(Dug_Temp(1:1440/(dt/60),i),'k','LineWidth', 1 ,'DisplayName','Probe Temps Observed'); %1st day only (1440s)
+end
 SS= plot(Soil_Temp_C_Probe(1:1440/(dt/60)),'k','LineWidth', 1 ,'DisplayName','near Surf Probe Temp Observed'); %1st day only (1440s)
 hold off
 legend([M(1:2) SS],'Interpreter','none')
@@ -405,7 +419,7 @@ title(ttl,'Interpreter','tex','FontName','Ariel')
       MData.k_dry_std_mantle = k_dry_std_mantle;
       MData.aspect_cwfromS = aspect_cwfromS;
       MData.slope_angle = slope;
-
+%% Save
 % clearvars -except out_DIR TData MData
 c = fix(clock);
 [fname, outDIR] = uiputfile(sprintf('_%02.0f%02.0f-%s.mat',c(4),c(5),date), 'Please navigate to outDIR and enter filename with .mat suffix : ');
