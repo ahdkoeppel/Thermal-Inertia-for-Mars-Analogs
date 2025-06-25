@@ -219,14 +219,16 @@ if strcmp(material_lower,"ice") %Adjust initial depth of transition guess and up
     %f = fit(T_mn',VWC_dug_depth','exp1');
     %Vars_init(7) = f(xq);
     Depth_ice = Vars_init(7);
-    plot(0:0.01:Depth_ice,interp1(VWC_dug_depth,T_mn,0:0.01:Depth_ice,'linear','extrap'));
-    if Depth_ice > Depth_Max
-        f = fit(VWC_dug_depth',T_mn','exp1');
-        T_Deep = f(Depth_Max)+273.15;
-    else
-        Depth_Max = Depth_ice;
-        T_Deep = 273.15;
-    end    
+    T_Deep = 273.15;
+    Depth_Max = 1.5*Depth_ice;
+    plot(0:0.01:Depth_Max,interp1(VWC_dug_depth,T_mn,0:0.01:Depth_Max,'linear','extrap'));
+    % if Depth_ice > Depth_Max
+    %     f = fit(VWC_dug_depth',T_mn','exp1');
+    %     T_Deep = f(Depth_Max)+273.15;
+    % else
+    %     Depth_Max = Depth_ice;
+    %     T_Deep = 273.15;
+    % end    
 else
     f = fit(VWC_dug_depth',T_mn','exp1');
     T_Deep = f(Depth_Max)+273.15;

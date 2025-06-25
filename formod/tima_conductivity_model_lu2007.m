@@ -83,8 +83,14 @@ else
 end
 
 Sr = VWC./theta_k; %degree of field capacity
-k_wet = k_solid.^(1-theta_k).*(k_H2O.^theta_k);%geometric mean to calculate thermal conductivity at field capacity
+k_wet = k_solid.^(1-theta_k).*(k_H2O.^theta_k).*k_dry;%geometric mean to 
+% calculate thermal conductivity at field capacity From Johansen 1975 &
+% Cote and Konrad 2005
 
+if k_wet(1) < k_dry(1) % In case theoretical k_wet is smaller than k_dry (shouldn't happen because
+%water is replacing air)
+    k_wet = k_dry-k_air.*theta_k + k_H2O.*theta_k; %Parallel
+end
 Sr(Sr>1)=1;
 
 %**********K Model************

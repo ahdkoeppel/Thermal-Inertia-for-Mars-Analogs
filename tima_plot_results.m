@@ -269,7 +269,7 @@ M = plot(TData.TIMESTAMP(MData.fit_ind),T_surf_C((MData.fit_ind),1),'r', 'LineWi
 hold off
 legend([F(2) M], 'Interpreter','none')
 fval = tima_fval_chi2v(TData.temps_to_fit_interp(MData.fit_ind),T_surf_C(MData.fit_ind),MData.erf(TData.temps_to_fit_interp(MData.fit_ind)),MData.nvars);
-Cp_std = tima_specific_heat_model_hillel(MData.density,MData.density);
+Cp_std = tima_specific_heat_model_DV1963(MData.density,MData.density,300,MData.material);
 TI =  sqrt(RESULTS(1)*MData.density*Cp_std);
 ttl = sprintf('TI Top [Jm^{-2}K^{-1}s^{-12}] = %0.2f, chi_v = %0.2f',TI,fval);%Calculate TI from results
 title(ttl)
