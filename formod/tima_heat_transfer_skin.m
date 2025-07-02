@@ -203,7 +203,6 @@ k_eff_dt = zeros(nt,NLAY);
 options = optimset('Display','off');
 
 %--------------- 2) TIME LOOP ----------------
-tic
 for t = 2:nt
     %(1) Density, Specific Heat, Thermal Conductivity
     rho = rho_dry_upper + rho_H2O*VWC_column(t,1); %Dry density + water content
@@ -344,7 +343,7 @@ for t = 2:nt
     end
     k_eff_dt(t,:) = k;
 end
-toc
+
 k_eff_dt(1,:) = k_eff_dt(2,:);
 q_G(1)=q_G(2);
 q_conv(1)=q_conv(2);

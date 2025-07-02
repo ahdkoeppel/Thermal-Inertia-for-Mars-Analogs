@@ -27,8 +27,9 @@ function [k_eff] = tima_conductivity_model_lu2007(k_dry_std,Soil_Temperature,T_s
 %    Ari Koeppel, 2021
 %
 % Sources
+%   https://www.eoas.ubc.ca/courses/eosc350/content/foundations/properties/density.htm
 %   Zhang and Wang 2017, 
-%   Dong 2015
+%   Dong et al 2015
 %   Lu and Dong 2015
 %   Tsilingiris 2008
 %   Piqueux 2009a
@@ -47,7 +48,7 @@ function [k_eff] = tima_conductivity_model_lu2007(k_dry_std,Soil_Temperature,T_s
 %       rooty-soil: 0.11;
 %   Lee & Pielke 1992: Field capacity- Sand: 0.135, Loam: 0.255, Clay: 0.367, Peat: 0.535
 %       Saturation- Sand: 0.395, Loam: 0.451, Clay: 0.482, Peat: 0.863
-
+density = 1860;
 % Air
 k_air = 0.024+7.78E-5.*(Soil_Temperature-273.15)-3E-05.*exp(0.0591.*(Soil_Temperature-273.15)).*Soil_RH; %Bristow 2002/Campbell 1994 with Tsilingiris 2008 Fig 3 assuming soil is equilibrated with air
 k_air_avg = 0.024+7.78E-5.*(T_std-273.15); %Thermal conductivity of air at zero moisture and standard temperature
@@ -61,29 +62,38 @@ k_H2O = 0.61;%-1.1e-5.*(Soil_Temperature - 273.15).^2 + 0.00234.*(Soil_Temperatu
 % k-bulk-dry from theory
 if strcmp(material,"basalt")
     k_solid = 1.18 + 474./(350+Soil_Temperature-273.15);%  % Piqueux and Christensen 2011/Clauser and Huenges [1995]
+    d_max = 2980;
 % Roughly = 2.2, Bristow, 2002
 elseif strcmp(material,"amorphous")
     k_solid = 0.718 + 0.0015.*(Soil_Temperature); %Piqueux and Christensen 2011/Wood2020/Clauser and Huenges [1995]/Siegler 2012
+    d_max = 2400;
 elseif strcmp(material,"granite")
     k_solid = 2.0; %Wood 2020
+    d_max = 2670;
     % Roughly = 2.0 (granite), Bristow, 2002
 elseif strcmp(material,"sandstone")
     k_solid =  0.18858+2192.2./Soil_Temperature; %Quartz Wood 2020/Birch and Clark 1940
+    d_max = 2400;
     %Roughly = 7.69; %(horai 1971)
 elseif strcmp(material,"clay")
     k_solid = 2.9;
+    d_max = 3000;
     % Roughly = 2.9 (clay), Bristow, 2002
 elseif strcmp(material,"salt")
     k_solid = -2.11 + 2960./(350+Soil_Temperature-273.15); %Piqueux and Christensen 2011/Clauser and Huenges [1995]
+    d_max = 2200;
 elseif strcmp(material,"ice")
     k_solid = 632./Soil_Temperature +0.38-0.00197.*Soil_Temperature; %Wood 2020/Andersson and Inaba 2005
+    d_max = 917;
     % Roughly = 2.18, Bristow, 2002
 else
     k_solid = 2.2;
+    d_max = 2500;
 end
+theta_k = 1-density/d_max; % Testing option to eliminate theta_k as variable.
 
 Sr = VWC./theta_k; %degree of field capacity
-k_wet = k_solid.^(1-theta_k).*(k_H2O.^theta_k).*k_dry;%geometric mean to 
+k_wet = k_solid.^(1-theta_k).*(k_H2O.^theta_k);%geometric mean to 
 % calculate thermal conductivity at field capacity From Johansen 1975 &
 % Cote and Konrad 2005
 
@@ -94,6 +104,7 @@ end
 Sr(Sr>1)=1;
 
 %**********K Model************
-k_eff = k_dry + exp(m.*(1-(Sr).^(m-1.33))).*(k_wet-k_dry); %Lu 2007
+% k_eff = k_dry + exp(m.*(1-(Sr).^(m-1.33))).*(k_wet-k_dry); %Lu 2007
+k_eff = k_dry + (m.*(Sr)./(1+(m-1).*Sr)).*(k_wet-k_dry); %Cote and Konrad 2005 + Zhang (2017)
 
 end

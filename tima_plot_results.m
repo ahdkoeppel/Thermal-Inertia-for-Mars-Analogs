@@ -330,13 +330,13 @@ figure
 for time = 1:length(TData.temps_to_fit_interp)
     full_latent(time) = sum(q_latent(time,:));
 end
-VWC_max = max(TData.VWC_column,[],2);
+VWC_max = TData.VWC_column(:,1);%max(TData.VWC_column,[],2);
 plot(TData.TIMESTAMP(MData.fit_ind),full_latent(MData.fit_ind),'c', 'LineWidth', 1 ,'DisplayName','latent heat');
 ylabel('W/m^2');
 yyaxis right
 plot(TData.TIMESTAMP(MData.fit_ind),VWC_max(MData.fit_ind),'k', 'LineWidth', 0.5 ,'DisplayName','Maximum Column VWC (%)');
 ax = gca; ax.YAxis(1).Color = 'c'; ax.YAxis(2).Color = 'k';
-ylabel('Maximum Column VWC (%)');
+ylabel('VWC Top Layer (%)');
 title('Surface Latent Heat Flux')
 
 figure

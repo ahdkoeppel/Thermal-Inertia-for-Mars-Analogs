@@ -17,6 +17,14 @@ function [models,names,RESULTS] = tima_TI_Earth_Tower(TData,MData,outDIR,varargi
 %   [models,names] = tima_TI_Earth_Tower(TData,MData,outDIR,varargin)
 %   [models,names] = tima_TI_Earth_Tower(TData,MData,outDIR,'Mode','1layer','Parallel',true,'SaveResults',true)
 %   [models,names,results] = tima_TI_Earth_Tower(TData,MData,outDIR,'Mode','1layer','Parallel',true,'SaveResults',true,'Initialize',true,'Skin',true);
+%   [models,names,results] = tima_TI_Earth_Tower(TData,MData,'X:\akoeppel\Git\Thermal-Inertia-for-Mars-Analogs\Example Data\','Mode','2layer_fixed_lower','Parallel',true,'SaveResults',true,'Initialize',true,'Skin',true,'MCMC',false,...
+        % 'k_upper_min',0.05,'k_upper_max',1,'k_lower_min',0.05,...
+        % 'k_lower_max',1,'m_min',0.5,'CH_min',350,...
+        % 'CH_max',850,'CE_min',500,'CE_max',2000,'theta_k_min',0.2,'theta_k_max',0.7,'theta_E_min',...
+        % 0.04,'theta_E_max',0.2);
+%to do: for vertical wind speed above a certain threshold, consider
+%conditions unstable and multiply CH & CE by 2-3 (or multiply as function of
+%vert
 %
 % varargin options:
 %   'IncreaseSampling': Option to increase sampling rate if model does not
@@ -145,6 +153,23 @@ p.addParameter('IncreaseSampling',false,@islogical);
 p.addParameter('Initialize',false,@islogical);
 p.addParameter('MCMC',false,@islogical);
 p.addParameter('Skin',false,@islogical);
+
+p.addOptional('k_upper_min',0.024, @(x) isvector(x) && isnumeric(x) && (x>0)); 
+p.addOptional('k_upper_max',3.7, @(x) isvector(x) && isnumeric(x) && (x<10) && (x>0)); 
+p.addOptional('k_lower_min',0.024, @(x) isvector(x) && isnumeric(x) && (x>0)); 
+p.addOptional('k_lower_max',3.7, @(x) isvector(x) && isnumeric(x) && (x<10) && (x>0)); 
+p.addOptional('depth_min',0, @(x) isvector(x) && isnumeric(x) && (x>=0));
+p.addOptional('depth_max',5, @(x) isvector(x) && isnumeric(x) && (x<=10) && (x>0));
+p.addOptional('m_min',0.01, @(x) isvector(x) && isnumeric(x) && (x>=0));
+p.addOptional('m_max',1.3, @(x) isvector(x) && isnumeric(x) && (x<=1.3) && (x>0));
+p.addOptional('CH_min',1, @(x) isvector(x) && isnumeric(x) && (x>=0));
+p.addOptional('CH_max',1000, @(x) isvector(x) && isnumeric(x) && (x>0));
+p.addOptional('CE_min',1, @(x) isvector(x) && isnumeric(x) && (x>=0));
+p.addOptional('CE_max',10000, @(x) isvector(x) && isnumeric(x) && (x>0));
+p.addOptional('theta_k_min',0.05, @(x) isvector(x) && isnumeric(x) && (x>=0) && (x<1));
+p.addOptional('theta_k_max',0.9, @(x) isvector(x) && isnumeric(x) && (x<=1) && (x>0));
+p.addOptional('theta_E_min',0.01, @(x) isvector(x) && isnumeric(x) && (x>=0) && (x<1));
+p.addOptional('theta_E_max',0.75, @(x) isvector(x) && isnumeric(x) && (x<=1) && (x>0));
 p.parse(TData, MData, outDIR, varargin{:});
 p=p.Results;
 Mode = p.Mode;
@@ -155,6 +180,23 @@ Initialize = p.Initialize;
 IncreaseSampling = p.IncreaseSampling;
 Skin = p.Skin;
 MCMC = p.MCMC; %Option to use MCMC or Surrogate Opt
+k_upper_min = p.k_upper_min(:);
+k_upper_max = p.k_upper_max(:);
+k_lower_min = p.k_lower_min(:);
+k_lower_max = p.k_lower_max(:);    
+depth_min = p.depth_min(:);
+depth_max = sum(MData.layer_size);%p.depth_max(:);
+m_min = p.m_min(:);
+m_max = p.m_max(:);
+CH_min = p.CH_min(:);
+CH_max = p.CH_max(:);
+CE_min = p.CE_min(:);
+CE_max = p.CE_max(:);
+theta_k_min = p.theta_k_min(:);
+theta_k_max = p.theta_k_max(:);
+theta_E_min = p.theta_E_min(:);
+theta_E_max = p.theta_E_max(:);
+
 names = {'k-dry-300-upper (W/mK)' 'Pore network con. par. (mk)' 'Surf. ex. coef. (CH)' 'Surf. ex. coef. (CE)' 'Soil Moist. Infl. (thetak) (%)' 'Soil Moist. Infl. (thetaE) (%)' 'Depth Tansition (m)' 'k-dry-300-lower (W/mK)'};
 
 if strcmp(Mode,'1layer')
@@ -168,8 +210,8 @@ if strcmp(Mode,'1layer')
         'f_diff',TData.DF,'material',MData.material,'mantle_thickness',MData.mantle_thickness,...
         'k_dry_std_mantle',MData.k_dry_std_mantle,'IncreaseSampling',IncreaseSampling,'Initialize',Initialize,'Skin',Skin);
     MData.minit = MData.minit(1:6,:);
-    MData.lbound = [0.024 0.01 1 1 0.05 0.01];
-    MData.ubound = [3.7 1.3 1000 10000 0.9 0.75];
+    MData.lbound = [k_upper_min m_min CH_min CE_min theta_k_min theta_E_min];
+    MData.ubound = [k_upper_max m_max CH_max CE_max theta_k_max theta_E_max];
     MData.nvars = 6;
 elseif strcmp(Mode,'2layer')
     formod = @(FitVar) tima_full_model(FitVar(1),FitVar(2),FitVar(3),...
@@ -184,8 +226,8 @@ elseif strcmp(Mode,'2layer')
          'mantle_thickness',MData.mantle_thickness,'k_dry_std_mantle',MData.k_dry_std_mantle,...
         'IncreaseSampling',IncreaseSampling,'Initialize',Initialize,'Skin',Skin);
     MData.minit = MData.minit(1:8,:);
-    MData.lbound = [0.024 0.01 1 1 0.05 0.01 0.024 0];
-    MData.ubound = [3.7 1.3 1000 10000 0.9 0.75 3.7 5];
+    MData.lbound = [k_upper_min m_min CH_min CE_min theta_k_min theta_E_min k_lower_min depth_min];
+    MData.ubound = [k_upper_max m_max CH_max CE_max theta_k_max theta_E_max k_lower_max depth_max];
     MData.nvars = 8;
 elseif strcmp(Mode,'2layer_fixed_depth') % This won't work with MCMC in the set up in ln prior right now
     formod = @(FitVar) tima_full_model(FitVar(1),FitVar(2),FitVar(3),...
@@ -200,8 +242,8 @@ elseif strcmp(Mode,'2layer_fixed_depth') % This won't work with MCMC in the set 
         'mantle_thickness',MData.mantle_thickness,'k_dry_std_mantle',MData.k_dry_std_mantle,...
         'IncreaseSampling',IncreaseSampling,'Initialize',Initialize,'Skin',Skin);
     MData.minit = MData.minit([1:6 8],:);
-    MData.lbound = [0.024 0.01 1 1 0.05 0.01 0.024];
-    MData.ubound = [3.7 1.3 1000 10000 0.9 0.75 3.7];
+    MData.lbound = [k_upper_min m_min CH_min CE_min theta_k_min theta_E_min k_lower_min];
+    MData.ubound = [k_upper_max m_max CH_max CE_max theta_k_max theta_E_max k_lower_max];
     MData.nvars = 7;
 elseif strcmp(Mode,'2layer_fixed_lower')
     formod = @(FitVar) tima_full_model(FitVar(1),FitVar(2),FitVar(3),...
@@ -215,34 +257,18 @@ elseif strcmp(Mode,'2layer_fixed_lower')
         'depth_transition',FitVar(7),'k_dry_std_lower',MData.vars_init(8),'material_lower',MData.material_lower,...
         'mantle_thickness',MData.mantle_thickness,'k_dry_std_mantle',MData.k_dry_std_mantle,'IncreaseSampling',IncreaseSampling,'Initialize',Initialize,'Skin',Skin);
     MData.minit = MData.minit(1:7,:);
-    MData.lbound = [0.024 0.01 1 1 0.05 0.01 0];
-    MData.ubound = [3.7 1.3 1000 10000 0.9 0.75 5];
+    MData.lbound = [k_upper_min m_min CH_min CE_min theta_k_min theta_E_min depth_min];
+    MData.ubound = [k_upper_max m_max CH_max CE_max theta_k_max theta_E_max depth_max];
     MData.nvars = 7;
 else
     error('Mode entered does not match available options.')
 end
 %% Optimiztion
 if MCMC == 1
-    k_air = 0.024; % Tsilingiris 2008
-    k_H2O = 0.61;
-    if strcmp(MData.material,'basalt') %amorphous', 'granite', 'sandstone', 'clay', 'salt', 'ice'
-        k_solid = 2.2; % Bristow, 2002 - basaslt = 2.2, clay = 2.9, qtz = 8.8, Ice = 2.18, Granite = 2.0.
-    elseif strcmp(MData.material,'granite')
-        k_solid = 2.0; 
-    elseif strcmp(MData.material,'clay')
-        k_solid = 2.9; 
-    elseif strcmp(MData.material,'sandstone')
-        k_solid = 8.8; 
-    elseif strcmp(MData.material,'salt')
-        k_solid = 2.0; 
-    elseif strcmp(MData.material,'amorphous')
-        k_solid = 2.0; 
-    elseif strcmp(MData.material,'ice')
-        k_solid = 2.18; 
-    else
-        k_solid = 2.2;
-    end
-    logPfuns = {@(theta)tima_ln_prior(theta,'depth_max',sum(MData.layer_size)) @(theta)tima_logPfun_chi2v(TData.temps_to_fit_interp(MData.fit_ind),tima_formod_subset(theta,MData.fit_ind,formod),MData.erf(TData.temps_to_fit_interp(MData.fit_ind)))};
+    logPfuns = {@(theta)tima_ln_prior(theta,'k_upper_min',k_upper_min,'k_upper_max',k_upper_max,'k_lower_min',k_lower_min,...
+        'k_lower_max',k_lower_max,'depth_min',depth_min,'depth_max',depth_max,'m_min',m_min,'m_max',m_max,'CH_min',CH_min,...
+        'CH_max',CH_max,'CE_min',CE_min,'CE_max',CE_max,'theta_k_min',theta_k_min,'theta_k_max',theta_k_max,'theta_E_min',...
+        theta_E_min,'theta_E_max',theta_E_max) @(theta)tima_logPfun_chi2v(TData.temps_to_fit_interp(MData.fit_ind),tima_formod_subset(theta,MData.fit_ind,formod),MData.erf(TData.temps_to_fit_interp(MData.fit_ind)))};
     
     %% Run emcee
     % ***************
@@ -304,6 +330,11 @@ if MCMC == 1
     if MCMC == true
       fprintf(fid,'Markov Chain Monte Carlo Optimization');
     end
+    if Skin == true
+        fprintf(fid,' with Skin fitting.\n');
+    else
+        fprintf(fid,'.\n');
+    end
     fprintf(fid,'Time step (s): %0.0f\nNsteps: %0.0f\nNwalkers: %0.0f\n# of Layers: %0.0f, Top Layer Size (m):  %0.4f, Mantle Thickness (m): %0.4f, k-dry-300-mantle (W/mK): %0.4f\nInitial Inputs:\n',MData.dt,MData.nstep,MData.nwalkers,length(MData.layer_size),MData.layer_size(1),MData.mantle_thickness,MData.k_dry_std_mantle);
     for i = 1:MData.nvars
         fprintf(fid,'%s = %0.4f\n',names{:,i},MData.vars_init(i));
@@ -342,7 +373,12 @@ else
     end
     fprintf(fid,'1D thermal model results considering one location (note: %s).\nDatetime: %s Runtime: %0.1f s\n',MData.notes,fname(13:end-4),elapsedTime);
     if MCMC == false
-      fprintf(fid,'Surrogate Optimization\n');
+      fprintf(fid,'Surrogate Optimization');
+    end
+    if Skin == true
+        fprintf(fid,' with Skin fitting.\n');
+    else
+        fprintf(fid,'.\n');
     end
     fprintf(fid,'Time step (s): %0.0f\nNsteps: %0.0f\nNwalkers: %0.0f\n# of Layers: %0.0f, Top Layer Size (m):  %0.4f, Mantle Thickness (m): %0.4f, k-dry-300-mantle (W/mK): %0.4f\nInitial Inputs:\n',MData.dt,Nsteps,MData.nwalkers,length(MData.layer_size),MData.layer_size(1),MData.mantle_thickness,MData.k_dry_std_mantle);
     for i = 1:MData.nvars

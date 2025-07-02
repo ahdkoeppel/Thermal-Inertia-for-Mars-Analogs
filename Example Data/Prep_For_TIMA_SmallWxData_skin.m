@@ -8,7 +8,7 @@ clc;
 clear
 close all;
 format compact; format longG;
-
+sig = 5.670374419e-8;
 %% Load Measured Inputs
 % ***************
 %Logger data
@@ -32,8 +32,8 @@ variableNames = Data_orig.Properties.VariableNames;
 if ok
     selectedVariableName = variableNames{selectedIndex};  % Get the name of the selected variable
     if strcmp('LWLowerCo_Avg',selectedVariableName) || strcmp('LWLowerCo',selectedVariableName)
-        Orig_Temps_to_Fit = (Data_orig.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
-        Orig_err = 5.*ones(size(Data_orig.LWLowerCo_Avg));
+        Orig_Temps_to_Fit = (Data_orig.LWLowerCo_Avg./sig).^0.25-273.15; %(Data.LWLowerCo_Avg./sig).^0.25-273.15
+        Orig_err = ((sig.*(Orig_Temps_to_Fit+273.15).^4+3)./sig).^0.25-273.15-Orig_Temps_to_Fit;
     else
         Orig_Temps_to_Fit = Data_orig.(selectedVariableName);    % Get the values of the selected variable
         Orig_err = (0.002.*(273.15+Orig_Temps_to_Fit)+0.20); %Accuracy is 0.05K after calibration; CS240 Accuracy ± (0.15 + 0.002T)K TO ADD: DIF in temp between back of CS240 and top
@@ -111,22 +111,22 @@ aspect_cwfromS = Addldata{31};
 
 %% Calclulate stability time step
 % if layer_size(z)/sqrt(2*dt*(k(z)/rho/Cp)) < 1
-diffusivity = 0.1/(density*tima_specific_heat_model_hillel(density,density)); %k/(rho*Cp)
-dz = 0.02; %min layer size
-t_step_calc = ceil(tima_calc_stable_timestep(0.1,dz,diffusivity)./60)
+diffusivity = Vars_init(1)/(density*tima_specific_heat_model_DV1963(density,density,300,material)); %k/(rho*Cp)
+FLAY = 0.01; %min layer size
+t_step_calc = ceil(tima_calc_stable_timestep(0.1,FLAY,diffusivity)./60)
 
 %% Resample
 %Error on the FLIR measurements is +/- 5 C or 5% of readings in the -25°C to +135°C range
 if t_step >= 1
     Data = retime(Data_orig,'regular','mean','TimeStep',minutes(t_step),'EndValues',NaN);
     if strcmp('LWLowerCo_Avg',selectedVariableName) || strcmp('LWLowerCo',selectedVariableName)
-        Temps_to_Fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
-        erf = @(T) 5.*ones(length(T));
-        err = erf(Data.LWLowerCo_Avg);
+        Temps_to_fit = (Data.LWLowerCo_Avg./sig).^0.25-273.15;
+        erf = @(T) ((sig.*(T+273.15).^4+3)./sig).^0.25-273.15-T;%+- 3 w/m2 uncertainty
+        err = erf(Temps_to_fit);
     elseif strcmp('T_Surf_e1',selectedVariableName)
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
-        erf = @(T) 5.*ones(length(T));
-        err = erf(Data.LWLowerCo_Avg);
+        erf = @(T) ((sig.*(T+273.15).^4+3)./sig).^0.25-273.15-T;
+        err = erf(Temps_to_fit);
     else
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
         erf = @(T) (0.002.*(273.15+T)+0.20);
@@ -137,13 +137,13 @@ if t_step >= 1
 else
     Data = retime(Data_orig,'regular','pchip','TimeStep',minutes(t_step));
     if strcmp('LWLowerCo_Avg',selectedVariableName) || strcmp('LWLowerCo',selectedVariableName)
-        Temps_to_Fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
-        erf = @(T) 5.*ones(length(T));
-        err = erf(Data.LWLowerCo_Avg);
+        Temps_to_fit = (Data.LWLowerCo_Avg./sig).^0.25-273.15; %(Data.LWLowerCo_Avg./sig).^0.25-273.15
+        erf = @(T) ((sig.*(T+273.15).^4+3)./sig).^0.25-273.15-T;
+        err = erf(Temps_to_fit);
     elseif strcmp('T_Surf_e1',selectedVariableName)
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
-        erf = @(T) 5.*ones(length(T));
-        err = erf(Data.LWLowerCo_Avg);
+        erf = @(T) ((sig.*(T+273.15).^4+3)./sig).^0.25-273.15-T;
+        err = erf(Temps_to_fit);
     else
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
         erf = @(T) (0.002.*(273.15+T)+0.20);
@@ -212,23 +212,23 @@ ylabel('Mean thermistor temperature (C)')
 title('Plot to assess subsurface temeprature gradient, and guess ice depth')
 hold on
 if strcmp(material_lower,"ice") %Adjust initial depth of transition guess and update depth max to accommodate
-    xq = 0; %freezing point
-    vq = interp1(T_mn,VWC_dug_depth,xq,'linear','extrap');
-    Vars_init(7) = vq;
+    T_new = 0; %freezing point
+    Depth_new = interp1(T_mn,VWC_dug_depth,T_new,'linear','extrap');
+    Vars_init(7) = Depth_new;
     % %Option to fit with exponential
     %f = fit(T_mn',VWC_dug_depth','exp1');
     %Vars_init(7) = f(xq);
     Depth_ice = Vars_init(7);
-    T_Deep = 273.15;
-    Depth_Max = 1.5*Depth_ice;
+    % T_Deep = 273.15;
+    % Depth_Max = 1.5*Depth_ice;
+    if Depth_ice > Depth_Max
+        f = fit(VWC_dug_depth',T_mn','exp1');
+        T_Deep = f(Depth_Max)+273.15;
+        % T_Deep = interp1(VWC_dug_depth,T_mn,Depth_Max,'linear','extrap')+273.15;
+    else
+        T_Deep = 273.15;
+    end
     plot(0:0.01:Depth_Max,interp1(VWC_dug_depth,T_mn,0:0.01:Depth_Max,'linear','extrap'));
-    % if Depth_ice > Depth_Max
-    %     f = fit(VWC_dug_depth',T_mn','exp1');
-    %     T_Deep = f(Depth_Max)+273.15;
-    % else
-    %     Depth_Max = Depth_ice;
-    %     T_Deep = 273.15;
-    % end    
 else
     f = fit(VWC_dug_depth',T_mn','exp1');
     T_Deep = f(Depth_Max)+273.15;
@@ -243,10 +243,10 @@ Dug_VWC_smooth = smoothdata(Dug_VWC,'gaussian',VWC_Smooth_Window);
 
 if ~ismember('WS_ms_Avg', Data.Properties.VariableNames);Data.WS_ms_Avg = Data.mean_wind_spd_ms;end
 WindSpeed_ms_10 = Data.WS_ms_Avg; % Wind Speed from sensor @ ~10 ft (3 m) height
-WindSpeed_ms_10_smooth = smoothdata(WindSpeed_ms_10,'gaussian',Smooth_Window); %wind is noisy, so this smoothes it
+%WindSpeed_ms_10_smooth = smoothdata(WindSpeed_ms_10,'gaussian',Smooth_Window); %wind is noisy, so this smoothes it
 
 %% Routine to set up boundary and initial conditions for model
-FLAY = 0.02;%0:0.005:1+0.0025*t_step;%:0.0005:0.1;%0:0.005:1+0.0025*t_step;%logspace(-2,0,400);%0:0.005:1; %FLAY values to test Christian used 0.01
+% FLAY = 0.02;%0:0.005:1+0.0025*t_step;%:0.0005:0.1;%0:0.005:1+0.0025*t_step;%logspace(-2,0,400);%0:0.005:1; %FLAY values to test Christian used 0.01
 
 % ***************
 clear T_Test
@@ -362,7 +362,7 @@ M(1) = fill([Data.TIMESTAMP; flipud(Data.TIMESTAMP)],[Temps_to_fit-err;flipud(Te
 set(M(1), 'edgecolor', 'none');
 set(M(1), 'FaceAlpha', 0.5);
 G = plot(Data.TIMESTAMP,Soil_Temp_C_Probe,'b','DisplayName','Measured');
-H = plot(Data.TIMESTAMP,(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15,'g','DisplayName','CNR4 LWLower, emmis=1');
+H = plot(Data.TIMESTAMP,(Data.LWLowerCo_Avg./sig).^0.25-273.15,'g','DisplayName','CNR4 LWLower, emmis=1');
 F = scatter(Data_orig.TIMESTAMP,Orig_Temps_to_Fit,1,'k.','DisplayName','FLIR Observations');
 leg = sprintf('Top %0.1f cm modeled temperature', FLAY*100);
 M(2)= plot(Data.TIMESTAMP,Test_Result(:,1),'r', 'LineWidth', 2 ,'DisplayName',leg);

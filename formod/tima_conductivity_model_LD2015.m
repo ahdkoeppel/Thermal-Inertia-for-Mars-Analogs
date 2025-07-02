@@ -44,54 +44,51 @@ function [k_eff] = tima_conductivity_model_LD2015(k_dry_std,Soil_Temperature,T_s
 %   Saturation- Sand: 0.395, Loam: 0.451, Clay: 0.482, Peat: 0.863
 
 
-% T_std = 300; % Temperature standard for thermal conductivity (K)
-
 % Air
-k_air = 0.024+7.73E-5.*(Soil_Temperature-273.15) - 2.6E-8*(Soil_Temperature-273.15)^2 - 3E-05.*exp(0.0591*(Soil_Temperature-273.15)).*Soil_RH; %Bristow 2002/Campbell 1994 with Tsilingiris 2008 Fig 3 assuming soil is equilibrated with air
-k_air_avg = 0.024+7.73E-5.*(T_std-273.15)- 2.6E-8.*(T_std-273.15)^2; %Thermal conductivity of air at zero moisture and standard temperature
-k_H2O = -1.1e-5.*(Soil_Temperature - 273.15).^2 + 0.00234.*(Soil_Temperature - 273.15) + 0.552; %Bristow 2002 or 0.59 from Zhang and Wang 2017 or 0.6096 from Haigh 2012
+k_air = 0.024+7.78E-5.*(Soil_Temperature-273.15)-3E-05.*exp(0.0591.*(Soil_Temperature-273.15)).*Soil_RH; %Bristow 2002/Campbell 1994 with Tsilingiris 2008 Fig 3 assuming soil is equilibrated with air
+k_air_avg = 0.024+7.78E-5.*(T_std-273.15); %Thermal conductivity of air at zero moisture and standard temperature
+k_dry_mod = 2*k_air.^(0.8964.*theta_k + 0.28); % Piquex 2009a Fig 8 - independent of composition and grain size
+k_dry_mod_avg = 2*k_air_avg.^(0.8964.*theta_k + 0.28); % Piquex 2009a Fig 8 R > 0.98 within range 0.01-0.035 - independent of composition and grain size
+k_dry_mod(k_dry_mod<k_air) = k_air(k_dry_mod<k_air);
+k_dry_mod_avg(k_dry_mod_avg<k_air_avg) = k_air_avg(k_dry_mod_avg<k_air_avg);
+k_dry = k_dry_std.*k_dry_mod./k_dry_mod_avg; % Since Piquex 2009a Fig 8 was modeled for a specific material type, k_dry_mod does not encessarily apply here, but the ratio of k_dry_mod/k_dry_mod_avg should be similar.
 
-
+k_H2O = 0.61;%-1.1e-5.*(Soil_Temperature - 273.15).^2 + 0.00234.*(Soil_Temperature - 273.15) + 0.552; %Bristow 2002 or 0.59 from Zhang and Wang 2017 or 0.6096 from Haigh 2012
 % k-bulk-dry from theory
-if strcmp(material,'basalt')
-    k_dry_mod = 2*k_air.^(0.8964.*theta_k + 0.28); % Piquex 2009a Fig 8
-    k_dry_mod_avg = 2*k_air_avg.^(0.8964.*theta_k + 0.28); % Piquex 2009a Fig 8 R > 0.98 within range 0.01-0.035
-    k_solid = 1.18 + 474/(350+Soil_Temperature-273.15);%  % Piqueux and Christensen 2011/Clauser and Huenges [1995]
+if strcmp(material,"basalt")
+    k_solid = 1.18 + 474./(350+Soil_Temperature-273.15);%  % Piqueux and Christensen 2011/Clauser and Huenges [1995]
 % Roughly = 2.2, Bristow, 2002
-elseif strcmp(material,'amorphous')
-    k_solid = 0.6924 + 0.0015*(Soil_Temperature-273.15); %Piqueux and Christensen 2011/Clauser and Huenges [1995]
-elseif strcmp(material,'granite')
-    k_solid = 2.0;
+elseif strcmp(material,"amorphous")
+    k_solid = 0.718 + 0.0015.*(Soil_Temperature); %Piqueux and Christensen 2011/Wood2020/Clauser and Huenges [1995]/Siegler 2012
+elseif strcmp(material,"granite")
+    k_solid = 2.0; %Wood 2020
     % Roughly = 2.0 (granite), Bristow, 2002
-elseif strcmp(material,'quartz')
-    k_solid = 7.69; %(horai 1971)
-elseif strcmp(material,'clay')
+elseif strcmp(material,"sandstone")
+    k_solid =  0.18858+2192.2./Soil_Temperature; %Quartz Wood 2020/Birch and Clark 1940
+    %Roughly = 7.69; %(horai 1971)
+elseif strcmp(material,"clay")
     k_solid = 2.9;
     % Roughly = 2.9 (clay), Bristow, 2002
-elseif strcmp(material,'salt')
-    k_solid = -2.11 + 2960/(350+Soil_Temperature-273.15); %Piqueux and Christensen 2011/Clauser and Huenges [1995]
-elseif strcmp(material,'ice')
-    k_solid = 2.18;
+elseif strcmp(material,"salt")
+    k_solid = -2.11 + 2960./(350+Soil_Temperature-273.15); %Piqueux and Christensen 2011/Clauser and Huenges [1995]
+elseif strcmp(material,"ice")
+    k_solid = 632./Soil_Temperature +0.38-0.00197.*Soil_Temperature; %Wood 2020/Andersson and Inaba 2005
     % Roughly = 2.18, Bristow, 2002
 else
     k_solid = 2.2;
 end
 
-if k_dry_mod<k_air
-    k_dry_mod = k_air;
+Sr = VWC./theta_k; %degree of field capacity
+k_wet = k_solid.^(1-theta_k).*(k_H2O.^theta_k);%geometric mean to 
+% calculate thermal conductivity at field capacity From Johansen 1975 &
+% Cote and Konrad 2005
+
+if k_wet(1) < k_dry(1) % In case theoretical k_wet is smaller than k_dry (shouldn't happen because
+%water is replacing air)
+    k_wet = k_dry-k_air.*theta_k + k_H2O.*theta_k; %Parallel
 end
-if k_dry_mod_avg<k_air_avg
-    k_dry_mod_avg = k_air_avg;
-end
-
-k_dry = k_dry_std*k_dry_mod/k_dry_mod_avg; % Since Piquex 2009a Fig 8 was modeled for a specific material type, k_dry_mod does not encessarily apply here, but the ratio of k_dry_mod/k_dry_mod_avg should be similar.
-
-
-Sr = VWC/theta_k; %degree of field capacity
-k_wet = k_solid^(1-theta_k)*(k_H2O^theta_k);%geometric mean to calculate thermal conductivity at field capacity
-
-if Sr>1, Sr = 1; end
+Sr(Sr>1)=1;
 
 %**********K Model************
-k_eff = k_dry + (1 - (1+(Sr)^m)^(1/m-1))*(k_wet-k_dry); %Lu and Dong 2015 1<m Best for Clays with hydration regime
+k_eff = k_dry + (1 - (1+(Sr).^m).^(1./m-1)).*(k_wet-k_dry); %Lu and Dong 2015 1<m Best for Clays with hydration regime
 end

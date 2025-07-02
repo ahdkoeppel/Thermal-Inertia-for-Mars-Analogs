@@ -24,10 +24,12 @@ function [q_sensible,SHCoeff] = tima_sensible_heat_model(CH,windspeed_horiz,air_
 % Sources
 %   Cellier 1996
 %   12th Amer. Meteorol. Soc. Symposium on Applied Climatology, 2000, pp. 96–99.
+% Summary of 1/CH at 3 m:
+%  – Neutral, smooth→rough: 1.2-2.6×10⁻³
+%  – Unstable:             2.5-6×10⁻³ (or higher over very rough)
+%  – Stable:               0.4-1.2×10⁻³  
 
-    if windspeed_horiz < 1
-        windspeed_horiz = 1; %m/s, lower limit on measureable wind speed
-    end
+    windspeed_horiz(windspeed_horiz<0.5)= 0.5; %m/s, lower limit on measureable wind speed
     rho_air = 1.291-0.00418*(air_temp_K-273.15); %kg/m^3, Evett in Warrick 2002
     Cp_air = 1013;%J/(kg⋅K), Evett in Warrick 2002
     SHCoeff=-rho_air*Cp_air*windspeed_horiz/CH;

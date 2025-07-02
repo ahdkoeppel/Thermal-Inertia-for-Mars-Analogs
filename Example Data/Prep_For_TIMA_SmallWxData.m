@@ -8,6 +8,7 @@ clc;
 clear
 close all;
 format compact; format longG;
+sig = 5.670374419e-8;
 
 %% Load Measured Inputs
 % ***************
@@ -33,7 +34,7 @@ if ok
     selectedVariableName = variableNames{selectedIndex};  % Get the name of the selected variable
     if strcmp('LWLowerCo_Avg',selectedVariableName) || strcmp('LWLowerCo',selectedVariableName)
         Orig_Temps_to_Fit = (Data_orig.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
-        Orig_err = 5.*ones(size(Data_orig.LWLowerCo_Avg));
+        Orig_err = ((sig.*(Orig_Temps_to_Fit+273.15).^4+3)./sig).^0.25-273.15-Orig_Temps_to_Fit;
     else
         Orig_Temps_to_Fit = Data_orig.(selectedVariableName);    % Get the values of the selected variable
         Orig_err = (0.002.*(273.15+Orig_Temps_to_Fit)+0.20); %Accuracy is 0.05K after calibration; CS240 Accuracy ± (0.15 + 0.002T)K TO ADD: DIF in temp between back of CS240 and top
@@ -120,13 +121,13 @@ t_step_calc = ceil(tima_calc_stable_timestep(0.1,dz,diffusivity)./60)
 if t_step >= 1
     Data = retime(Data_orig,'regular','mean','TimeStep',minutes(t_step),'EndValues',NaN);
     if strcmp('LWLowerCo_Avg',selectedVariableName) || strcmp('LWLowerCo',selectedVariableName)
-        Temps_to_Fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
-        erf = @(T) 5.*ones(length(T));
-        err = erf(Data.LWLowerCo_Avg);
+        Temps_to_fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
+        erf = @(T) ((sig.*(T+273.15).^4+3)./sig).^0.25-273.15-T;
+        err = erf(Temps_to_fit); %+- 3 w/m2 uncertainty
     elseif strcmp('T_Surf_e1',selectedVariableName)
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
-        erf = @(T) 5.*ones(length(T));
-        err = erf(Data.LWLowerCo_Avg);
+        erf = @(T) ((sig.*(T+273.15).^4+3)./sig).^0.25-273.15-T;
+        err = erf(Temps_to_fit); %+- 3 w/m2 uncertainty
     else
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
         erf = @(T) (0.002.*(273.15+T)+0.20);
@@ -137,13 +138,13 @@ if t_step >= 1
 else
     Data = retime(Data_orig,'regular','pchip','TimeStep',minutes(t_step));
     if strcmp('LWLowerCo_Avg',selectedVariableName) || strcmp('LWLowerCo',selectedVariableName)
-        Temps_to_Fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
-        erf = @(T) 5.*ones(length(T));
-        err = erf(Data.LWLowerCo_Avg);
+        Temps_to_fit = (Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15; %(Data.LWLowerCo_Avg./5.670374419e-8).^0.25-273.15
+        erf = @(T) ((sig.*(T+273.15).^4+3)./sig).^0.25-273.15-T;
+        err = erf(Temps_to_fit); %+- 3 w/m2 uncertainty
     elseif strcmp('T_Surf_e1',selectedVariableName)
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
-        erf = @(T) 5.*ones(length(T));
-        err = erf(Data.LWLowerCo_Avg);
+        erf = @(T) ((sig.*(T+273.15).^4+3)./sig).^0.25-273.15-T;
+        err = erf(Temps_to_fit); %+- 3 w/m2 uncertainty
     else
         Temps_to_fit = Data.(selectedVariableName);    % Get the values of the selected variable
         erf = @(T) (0.002.*(273.15+T)+0.20);

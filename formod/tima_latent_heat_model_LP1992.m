@@ -41,10 +41,18 @@ function [q_latent,soil_RH,LHCoeff] = tima_latent_heat_model_LP1992(CE,theta_E,p
 %   Lee & Pielke 1992
 %   Lee & Pielke 1992: Field capacity- Sand: 0.135, Loam: 0.255, Clay: 0.367, Peat: 0.535
 %   Saturation- Sand: 0.395, Loam: 0.451, Clay: 0.482, Peat: 0.863
+% Neutral conditions (z = 3 m)
+% Smooth water (z0≈10⁻⁴ m): C E ≈ 1.2…1.8×10⁻³
+% Flat land (z0≈10⁻² m): C E ≈ 1.0…1.8×10⁻³
+% Rough land / short vegetation (z0≈10⁻¹–1 m): C E ≈ 1.6…2.6×10⁻³
+% Very rough canopies (z0∼1 m): C E ≈ 2.5…3.5×10⁻³   
+% 
+% Unstable (convective) stratification
+%      C E  typically rises to 2.5…6×10⁻³   (up to ~8×10⁻³ over very rough)   
+% Stable stratification
+%      C E  typically falls to 0.4…1.2×10⁻³   
 
-    if windspeed_horiz < 1
-        windspeed_horiz = 1; %m/s, lower limit on measureable wind speed 
-    end
+    windspeed_horiz(windspeed_horiz<0.5)=0.5; %m/s, lower limit on measureable wind speed
     L_H2O = (2.501-2.37e-3*(T_ground_K-273.15))*10^6;%J/kg, latent heat of evaporation  - Evett in Warrick 2002
     R = 8.31446; %J/(K·mol), gas constant
     Md = 0.0289652; % kg/mol, Dry air
