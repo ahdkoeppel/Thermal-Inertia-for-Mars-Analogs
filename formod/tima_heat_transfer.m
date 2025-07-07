@@ -138,6 +138,10 @@ p.addParameter('shadow_data',[],@isnumeric);
 p.addParameter('shadow_time_ind',[],@(x)isnumeric(x)&&isvector(x));
 p.addParameter('T_adj1',[]);
 p.addParameter('T_adj2',[]);
+
+p.addParameter('ref_height', 3,   @isnumeric);
+p.addParameter('roughness', 0.01, @isnumeric);
+p.addParameter('displacement', 0, @isnumeric);
 p.parse(r_short_lower, r_short_upper, r_long_upper, varargin{:});
 p=p.Results;
 
@@ -159,6 +163,10 @@ T_adj2 = p.T_adj2;if ~isempty(T_adj2), T_adj2(1) = T_adj2(1)/(dt/60);end
 e_fxn = p.e_fxn;
 mantle_thickness = p.mantle_thickness;
 k_dry_std_mantle = p.k_dry_std_mantle;
+
+h = p.ref_height;
+z0 = p.roughness;
+d = p.displacement;
 enable_melting = false; %switch to include ability of ice to melt
 % ***************
 
@@ -173,21 +181,24 @@ NLAY = length(layer_size);
 T = NaN(length(air_temp_C),NLAY); %Matrix of Temperatures for each layer and time point, T(1,t) is surface temp array that will be fit to obs data
 T(1,:) = initial_temps;
 T(:,NLAY) = T_deep;
-[~,D_z] = min(abs(depth_transition-cumsum(layer_size))); %index of depth for k transition
+
 Mantle_Ind = 0;
 if mantle_thickness>0
     [~,Mantle_Ind] = min(abs(mantle_thickness-cumsum(layer_size))); %index of depth for surfce mantle transition
 end
 %m_melt = zeros(NLAY,1);%area density of melted ice per layer kg/m^2
 k = k_dry_std_upper.*ones(1,NLAY);
-kay_upper = k_dry_std_upper;
-kay_lower = k_dry_std_lower;
+
 
 q_G = zeros(length(air_temp_C),1);
 q_rad = zeros(length(air_temp_C),1);
 q_conv = zeros(length(air_temp_C),1);
-q_latent = zeros(length(air_temp_C),NLAY);
+q_latent = zeros(length(air_temp_C),1);
+%q_latent = zeros(length(air_temp_C),NLAY);
 k_eff_dt = zeros(length(air_temp_C),NLAY);
+
+%NOTE: check to make sure evap depth is scalar
+[~,Evap_Ind] = min(abs(evap_depth-cumsum(layer_size))); %index of depth for surfce mantle transition
 
 FC = NaN(NLAY-1,1);
 FB = layer_size(2)/layer_size(1);
@@ -195,17 +206,25 @@ for z = 1:NLAY-1
     FC(z) = 2*dt/layer_size(z)^2;
 end
 for t = 2:length(air_temp_C)
-    %*********LATENT HEAT & THERMAL CONDUCTIVITY***********
-    [q_evap_1,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,1),VWC_column(t-1,1));
-    q_latent(t,1) = q_evap_1;
-    q_latent(1,1) = q_evap_1; %**CHANGE to q_latent(1,1?)
+    %*********SENSIBLE & LATENT HEAT & THERMAL CONDUCTIVITY***********
+    [q_conv(t), q_latent(t), Soil_RH] = tima_sensible_and_latent_heat_model(theta_E,windspeed_horiz(t-1),air_temp_K(t-1),T(t-1,1),pressure_air_pa(t-1),RH(t-1),mean(VWC_column(t-1,1:Evap_Ind)), ...
+          'ref_height', h, ...
+          'roughness', z0, ...
+          'displacement', d);
     if Mantle_Ind >= 1
         k(1) = tima_conductivity_model_lu2007(k_dry_std_mantle,T(t-1,1),T_std,VWC_column(t-1,1),theta_k,m,Soil_RH,material);%Top
     else
-        k(1) = tima_conductivity_model_lu2007(kay_upper,T(t-1,1),T_std,VWC_column(t-1,1),theta_k,m,Soil_RH,material);%Top
+        k(1) = tima_conductivity_model_lu2007(k_dry_std_upper,T(t-1,1),T_std,VWC_column(t-1,1),theta_k,m,Soil_RH,material);%Top
     end
-    [~,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,NLAY),VWC_column(t-1,end));
-    k(NLAY) = tima_conductivity_model_lu2007(kay_lower,T(t-1,NLAY),T_std,VWC_column(t-1,end),theta_k,m,Soil_RH,material_lower);%Top;%Bottom
+    % [~,~,Soil_RH] = tima_sensible_and_latent_heat_model(theta_E,windspeed_horiz(t-1),air_temp_K(t-1),T(t-1,NLAY),pressure_air_pa(t-1),RH(t-1),VWC_column(t-1,end),...
+    %       'ref_height', h, ...
+    %       'roughness', z0, ...
+    %       'displacement', d);
+    if sum(layer_size) >= depth_transition
+        k(NLAY) = tima_conductivity_model_lu2007(k_dry_std_lower,T(t-1,NLAY),T_std,VWC_column(t-1,end),theta_k,m,Soil_RH,material_lower);%Top;%Bottom
+    else
+        k(NLAY) = tima_conductivity_model_lu2007(k_dry_std_upper,T(t-1,NLAY),T_std,VWC_column(t-1,end),theta_k,m,Soil_RH,material);%Top;%Bottom
+    end
     %****************************************
     
     %*********Specific heat***********
@@ -213,9 +232,6 @@ for t = 2:length(air_temp_C)
     Cp = tima_specific_heat_model_DV1963(rho_dry_upper,rho,T(t-1,1),material);
     %****************************************
 
-    %*********SENSIBLE HEAT***********
-    q_conv(t) = tima_sensible_heat_model(CH,windspeed_horiz(t-1),air_temp_K(t-1),T(t-1,1)); %(W/m^2)
-    %*******************************
     %********Surface emission*********
     if isempty(e_fxn) %Treat as black body using Stefan-Boltzmann Law
         sigma = 5.670374419e-8; % Stefan-Boltzmann Const
@@ -251,8 +267,11 @@ for t = 2:length(air_temp_C)
     
     %*********Ground Flux***********
     %ref: Kieffer, 2013
-    [~,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,2),VWC_column(t-1,2));
-    k(2) = tima_conductivity_model_lu2007(kay_lower,T(t-1,2),T_std,VWC_column(t-1,2),theta_k,m,Soil_RH,material);
+    % [~,~,Soil_RH] = tima_sensible_and_latent_heat_model(theta_E,windspeed_horiz(t-1),air_temp_K(t-1),T(t-1,2),pressure_air_pa(t-1),RH(t-1),VWC_column(t-1,2),...
+    %       'ref_height', h, ...
+    %       'roughness', z0, ...
+    %       'displacement', d);
+    k(2) = tima_conductivity_model_lu2007(k_dry_std_lower,T(t-1,2),T_std,VWC_column(t-1,2),theta_k,m,Soil_RH,material);
     q_G(t) = 2*(T(t-1,2)-T(t-1,1))/(layer_size(1)/k(1)+layer_size(2)/k(2)); %heat flux from conducting with lower layer
     %*******************************
 
@@ -263,24 +282,19 @@ for t = 2:length(air_temp_C)
     %*******************************
     %*********Subsurface Flux (from KRC, Kieffer, 2013)***********
     for z = 2:NLAY-1 %layer loop
-        if z <= Mantle_Ind && z < D_z %Surface Mantle (low k material that causes high frequency imprint on general diurnal trend
-            if sum(layer_size(1:z)) <= evap_depth(t-1)
-                [q_evap_z,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,z),VWC_column(t-1,z));
-            else
-                [~,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,z),VWC_column(t-1,z));
-                q_evap_z = 0; %Evap_Coeff
-            end
+            %     [~,q_evap_z,Soil_RH] = tima_sensible_and_latent_heat_model(theta_E,windspeed_horiz(t-1),air_temp_K(t-1),T(t-1,z),pressure_air_pa(t-1),RH(t-1),VWC_column(t-1,z),...
+            %       'ref_height', h, ...
+            %       'roughness', z0, ...
+            %       'displacement', d);       
+            % if sum(layer_size(1:z)) > evap_depth(t-1)
+            q_evap_z = 0; %Evap_Coeff
+            % end
+        if z <= Mantle_Ind && sum(layer_size(1:z)) < depth_transition %Surface Mantle (low k material that causes high frequency imprint on general diurnal trend
             k(z) = tima_conductivity_model_lu2007(k_dry_std_mantle,T(t-1,z),T_std,VWC_column(t-1,z),theta_k,m,Soil_RH,material);
             rho = rho_dry_upper + rho_H2O*VWC_column(t-1,z); %H2O dep
             Cp = tima_specific_heat_model_DV1963(rho_dry_upper,rho,T(t-1,z),material);%tima_specific_heat_model_hillel(rho_dry_upper,rho);%
-        elseif z < D_z % Top Layer
-            if sum(layer_size(1:z)) <= evap_depth(t-1)
-                [q_evap_z,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,z),VWC_column(t-1,z));
-            else
-                [~,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,z),VWC_column(t-1,z));
-                q_evap_z = 0; %Evap_Coeff
-            end
-            k(z) = tima_conductivity_model_lu2007(kay_upper,T(t-1,z),T_std,VWC_column(t-1,z),theta_k,m,Soil_RH,material);
+        elseif sum(layer_size(1:z)) < depth_transition % Top Layer
+            k(z) = tima_conductivity_model_lu2007(k_dry_std_upper,T(t-1,z),T_std,VWC_column(t-1,z),theta_k,m,Soil_RH,material);
             rho = rho_dry_upper + rho_H2O*VWC_column(t-1,z); %H2O dep
             Cp = tima_specific_heat_model_DV1963(rho_dry_upper,rho,T(t-1,z),material);%tima_specific_heat_model_hillel(rho_dry_upper,rho);%
         else %Lower Layer
@@ -291,22 +305,11 @@ for t = 2:length(air_temp_C)
                 %Soil_RH = 1;
                 k(z:end) = 632./T(t-1,z)+0.38-0.00197.*T(t-1,z); %Wood 2020/Andersson and Inaba 2005;
             else %Not ice
-                if sum(layer_size(1:z)) <= evap_depth
-                    [q_evap_z,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,z),VWC_column(t-1,z));
-                else
-                    [~,Soil_RH] = tima_latent_heat_model_LP1992(CE,theta_E,pressure_air_pa(t-1),windspeed_horiz(t-1),RH(t-1),air_temp_K(t-1),T(t-1,z),VWC_column(t-1,z));
-                    q_evap_z = 0; %Evap_Coeff
-                end
-                k(z:end) = tima_conductivity_model_lu2007(kay_lower,T(t-1,z),T_std,VWC_column(t-1,z),theta_k,m,Soil_RH,material_lower);
+                k(z:end) = tima_conductivity_model_lu2007(k_dry_std_lower,T(t-1,z),T_std,VWC_column(t-1,z),theta_k,m,Soil_RH,material_lower);
                 rho = rho_dry_lower + rho_H2O*VWC_column(t-1,z); %H2O dep
                 Cp = tima_specific_heat_model_DV1963(rho_dry_lower,rho,T(t-1,z),material_lower);
             end
         end
-        % if layer_size(z)/sqrt(2*dt*(k(z)/rho/Cp)) < 1
-        %     fprintf('Non convergance for k: %0.4f, m: %0.4f, CH: %0.4f, CE: %0.4f, theta_k: %0.4f, theta_E: %0.4f',k_dry_std_upper,m,CH,CE,theta_k,theta_E)
-        %     T(t:end,1) = -65535;
-        %     break
-        % end
         %Subsurface Multip Factors (Kieffer, 2013)
         F1 = FC(z)*k(z)/((Cp*rho)*(1+FB*k(z)/k(z+1)));
         F3 = (1+FB*(k(z)/k(z+1)))/(1+(1/FB)*(k(z)/k(z-1)));
@@ -314,21 +317,22 @@ for t = 2:length(air_temp_C)
         %Temperature response
         dT = F1*(T(t-1,z+1)+F2*T(t-1,z)+F3*T(t-1,z-1))+dt/(Cp*rho*layer_size(z))*q_evap_z;
         T(t,z) = T(t-1,z)+dT;
-        if strcmp(material_lower,"ice") && z >= D_z && T(t,z) > 273.15
+        if strcmp(material_lower,"ice") && sum(layer_size(1:z)) >= depth_transition && T(t,z) > 273.15
             if enable_melting==1 %Melt ice if enough energy
                 q_ice = (T(t,z)-273.15)*(Cp*rho*layer_size(z));%heat in to ice J/m^2 assuming 50% purity (rho and Cp still as above)
                 m_melt(z) = m_melt(z)+q_ice/334000; %mass of ice melted added to prior mass. heat input (J/m^2)/ Latent heat of fusion pure ice (J/kg)=kg/m^2
-                if m_melt(z) > 917*0.5*layer_size(z); D_z = D_z+1; end %if mass is greater than total mass of ice in layer at 50%: melting. 917 = Desnity of ice kg/m^3 at 0C
+                if m_melt(z) > 917*0.5*layer_size(z); depth_transition = depth_transition+layer_size(z); end %if mass is greater than total mass of ice in layer at 50%: melting. 917 = Desnity of ice kg/m^3 at 0C
                 %To add: elseif freezing
             end
             T(t,z) = 273.15;%set to 0 C if ice and above freezing, heat sink
         end
-        q_latent(t,z) = q_evap_z;        
+        % q_latent(t,z) = q_evap_z;        
     end
     k_eff_dt(t,:) = k;
 end
 k_eff_dt(1,:) = k_eff_dt(2,:);
 q_G(1)=q_G(2);
+q_latent(1) = q_latent(2);
 q_conv(1)=q_conv(2);
 q_rad(1)=q_rad(2);
 T_surf_C = T(:,1) - 273.15;
